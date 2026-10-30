@@ -30,27 +30,43 @@
 
   <div id="topbar" class="hidden">
     <button id="btnView" title="Toggle top view (T)">⬒</button>
-    <button id="btnGuide" title="Aim guide (G)">⌖</button>
+    <button id="btnGuide" title="Aim guide — practice only (G)">⌖</button>
     <button id="btnSound" title="Sound (M)">♪</button>
     <button id="btnFs" title="Fullscreen (F)">⛶</button>
     <button id="btnMenu" title="Menu (Esc)">☰</button>
   </div>
 
   <div id="controls" class="hidden">
-    <div id="spin" title="Cue tip position — tap to set english / draw / follow">
-      <div id="spinDot"></div>
+    <div id="tipPanel" title="Where your tip meets the cue ball — drag to set">
+      <canvas id="tipCanvas" width="240" height="160"></canvas>
+    </div>
+    <div id="elev" title="Butt elevation — drag up to jack up the cue (forced minimum marked)">
+      <div id="elevFill"></div><div id="elevMin"></div><div id="elevLabel">0°</div>
+    </div>
+    <div id="cueBtns">
+      <button id="bridgeBtn" title="Bridge (B)">Closed</button>
+      <button id="chalkBtn" title="Chalk (C)">Chalk</button>
     </div>
     <div id="fine" title="Fine aim — drag left / right"><div id="fineTex"></div></div>
-    <div id="power" title="Pull down to set power, release to shoot">
-      <div id="powerFill"></div>
-      <div id="powerLabel">PULL</div>
+    <button id="downBtn" title="Get down on the shot (Space)">Get down</button>
+  </div>
+  <canvas id="strokeCanvas" class="hidden" width="80" height="200"></canvas>
+  <div id="report"></div>
+  <button id="actBtn" class="hidden">Tighten</button>
+
+  <div id="chalkOv" class="overlay hidden">
+    <div class="chalkCard">
+      <h3 id="chalkTitle">Chalk your tip</h3>
+      <p class="sub2">Brush the chalk across the tip — cover the edges too, that's where off-centre hits land</p>
+      <canvas id="chalkCanvas"></canvas>
+      <button id="chalkDone" class="primary">Done</button>
     </div>
   </div>
 
   <div id="menu" class="overlay">
     <div class="card">
       <h1>Otep <span>Billiards</span></h1>
-      <p class="sub">Real-physics 8-ball</p>
+      <p class="sub">Real-physics 8-ball · no aim lines · no power bar</p>
       <div class="btns">
         <button data-mode="cpu" class="primary">Play vs CPU</button>
         <button data-mode="pvp">2 Players</button>
@@ -65,12 +81,14 @@
       <details class="help">
         <summary>How to play</summary>
         <ul>
-          <li><b>Aim:</b> drag on the table (←/→ keys, Shift for fine). Use the bar at the bottom for fine aim.</li>
-          <li><b>Camera:</b> drag up/down to tilt, scroll / pinch to zoom, <b>⬒</b> or <b>T</b> for top view (tap the table to aim there).</li>
-          <li><b>Shoot:</b> pull the power bar down and release, or hold <b>Space</b>.</li>
-          <li><b>Spin:</b> tap the cue ball (bottom-left) to hit high/low/left/right.</li>
-          <li><b>Ball in hand:</b> drag the cue ball to place it.</li>
-          <li><b>Fullscreen:</b> starts automatically; <b>⛶</b> or <b>F</b> to toggle.</li>
+          <li><b>Rack:</b> the player who isn't breaking racks. Drag the rack onto the spot, Tighten, then swipe up to lift it straight off. A crooked lift loosens the rack.</li>
+          <li><b>Chalk:</b> you must chalk before your first shot. Brush the chalk over the tip. Chalk wears off where the ball touches it, and a dry spot miscues.</li>
+          <li><b>Aim:</b> drag on the table to walk around the shot. Use the strip at the bottom for fine aim.</li>
+          <li><b>Tip and butt:</b> drag on the ball face to place the tip. Drag the slider up to raise the butt for a jump or massé. Rails and balls behind the cue force a minimum height.</li>
+          <li><b>Bridge:</b> Closed, Open, Rail or Mechanical. You get what the position allows: near a rail you use a rail bridge, out of reach you use the mechanical bridge. Shakier bridges cost accuracy.</li>
+          <li><b>Shoot:</b> tap <b>Get down</b> (Space). Pull your finger down to draw the cue back, then push up through the ball. Your finger speed is the cue speed. Sideways drift steers the cue. There's no power bar.</li>
+          <li><b>Nerves:</b> the cue sways more on big balls like the 8. Stay down a moment and it settles, but stay too long and your arm tires.</li>
+          <li><b>Camera:</b> drag up and down to tilt, scroll or pinch to zoom. <b>⬒</b> / <b>T</b> gives a top view to look only (you can aim from it in practice).</li>
         </ul>
       </details>
     </div>

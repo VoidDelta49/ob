@@ -4,7 +4,7 @@ import * as THREE from 'three';
 export function createCue() {
   const group = new THREE.Group();
   const sections = [
-    { len: 0.011, r0: 0.0064, r1: 0.0064, mat: { color: 0x2f62b8, roughness: 0.95 } },              // chalked tip
+    { len: 0.011, r0: 0.0064, r1: 0.0064, mat: { color: 0x6b4a2f, roughness: 0.95 } },              // leather tip (tinted by chalk)
     { len: 0.022, r0: 0.0064, r1: 0.0066, mat: { color: 0xf3efe6, roughness: 0.3 } },               // ferrule
     { len: 0.70, r0: 0.0066, r1: 0.0106, mat: { color: 0xe2c690, roughness: 0.35, clearcoat: 0.6 } }, // maple shaft
     { len: 0.018, r0: 0.0109, r1: 0.0109, mat: { color: 0xc9c9c9, roughness: 0.2, metalness: 1 } },   // joint
@@ -25,6 +25,9 @@ export function createCue() {
     group.add(m);
     y += s.len;
   }
+  const tipMat = group.children[0].material;
+  const leather = new THREE.Color(0x6b4a2f), chalkBlue = new THREE.Color(0x2f62b8);
+  group.userData.setChalk = (c) => tipMat.color.copy(leather).lerp(chalkBlue, Math.max(0, Math.min(1, c)));
   let op = 1;
   group.userData.setOpacity = (o) => {
     if (o === op) return;

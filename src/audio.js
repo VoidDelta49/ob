@@ -71,3 +71,21 @@ export function pocket() {
   burst({ t: 0.12, vol: 0.25, freq: 900, q: 1.5, dur: 0.05 });
   burst({ t: 0.21, vol: 0.12, freq: 1100, q: 1.5, dur: 0.04 });
 }
+// Miscue: the tip skids off with a dry, scraping clack instead of a clean click.
+export function miscue() {
+  burst({ vol: 0.55, freq: 700, q: 0.6, dur: 0.06, tone: 380, toneDur: 0.05 });
+  burst({ t: 0.015, vol: 0.3, freq: 2400, q: 0.5, dur: 0.09 });
+}
+// Chalk scraping on the tip; called repeatedly while brushing.
+let lastChalk = 0;
+export function chalk(speed) {
+  if (!ctx) return;
+  const n = ctx.currentTime;
+  if (n - lastChalk < 0.05) return;
+  lastChalk = n;
+  burst({ vol: Math.min(0.22, 0.04 + speed * 0.06), freq: 5200 + Math.random() * 1500, q: 0.9, dur: 0.06 });
+}
+// Ball landing on the slate after a jump.
+export function slate(speed) {
+  burst({ vol: Math.min(0.6, 0.12 + speed * 0.15), freq: 220, q: 0.7, dur: 0.07, type: 'lowpass', tone: 95, toneDur: 0.05 });
+}
