@@ -1,0 +1,16 @@
+{
+  "name": "otep-billiards",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Realistic 3D 8-ball pool in the browser (Three.js + custom physics)",
+  "scripts": {
+    "dev": "npx serve -l 5173 .",
+    "build": "node build.mjs",
+    "test": "node tests/physics.test.mjs"
+  },
+  "devDependencies": {
+    "esbuild": "^0.24.0",
+    "three": "0.170.0"
+  }
+}

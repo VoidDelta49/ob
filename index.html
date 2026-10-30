@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+  <meta name="theme-color" content="#0b0907" />
+  <title>Otep Billiards — 3D 8-Ball</title>
+  <link rel="stylesheet" href="style.css" />
+  <script type="importmap">
+    { "imports": {
+        "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
+        "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"
+    } }
+  </script>
+</head>
+<body>
+  <canvas id="c"></canvas>
+
+  <div id="hud" class="hidden">
+    <div class="player" id="p0"><div class="pname"></div><div class="pballs"></div></div>
+    <div id="turn"></div>
+    <div class="player right" id="p1"><div class="pname"></div><div class="pballs"></div></div>
+  </div>
+
+  <div id="toast"></div>
+  <div id="hint" class="hidden"></div>
+
+  <div id="topbar" class="hidden">
+    <button id="btnView" title="Toggle top view (T)">⬒</button>
+    <button id="btnGuide" title="Aim guide (G)">⌖</button>
+    <button id="btnSound" title="Sound (M)">♪</button>
+    <button id="btnMenu" title="Menu (Esc)">☰</button>
+  </div>
+
+  <div id="controls" class="hidden">
+    <div id="spin" title="Cue tip position — tap to set english / draw / follow">
+      <div id="spinDot"></div>
+    </div>
+    <div id="fine" title="Fine aim — drag left / right"><div id="fineTex"></div></div>
+    <div id="power" title="Pull down to set power, release to shoot">
+      <div id="powerFill"></div>
+      <div id="powerLabel">PULL</div>
+    </div>
+  </div>
+
+  <div id="menu" class="overlay">
+    <div class="card">
+      <h1>Otep <span>Billiards</span></h1>
+      <p class="sub">Real-physics 8-ball</p>
+      <div class="btns">
+        <button data-mode="cpu" class="primary">Play vs CPU</button>
+        <button data-mode="pvp">2 Players</button>
+        <button data-mode="practice">Practice</button>
+      </div>
+      <div class="opts">
+        <label>CPU <select id="diff"><option value="easy">Easy</option><option value="medium" selected>Medium</option><option value="hard">Hard</option></select></label>
+        <label>Graphics <select id="gfx"><option value="high">High</option><option value="low">Low</option></select></label>
+        <label>Cloth <select id="clothSel"><option value="green">Green</option><option value="blue">Tournament blue</option><option value="red">Wine</option></select></label>
+      </div>
+      <button id="resume" class="hidden ghost">Resume</button>
+      <details class="help">
+        <summary>How to play</summary>
+        <ul>
+          <li><b>Aim:</b> drag on the table (←/→ keys, Shift for fine). Use the bar at the bottom for fine aim.</li>
+          <li><b>Camera:</b> drag up/down to tilt, scroll / pinch to zoom, <b>⬒</b> or <b>T</b> for top view (tap the table to aim there).</li>
+          <li><b>Shoot:</b> pull the power bar down and release, or hold <b>Space</b>.</li>
+          <li><b>Spin:</b> tap the cue ball (bottom-left) to hit high/low/left/right.</li>
+          <li><b>Ball in hand:</b> drag the cue ball to place it.</li>
+        </ul>
+      </details>
+    </div>
+  </div>
+
+  <div id="over" class="overlay hidden">
+    <div class="card">
+      <h2 id="overTitle"></h2>
+      <p id="overSub"></p>
+      <div class="btns"><button id="again" class="primary">Rematch</button><button id="toMenu">Menu</button></div>
+    </div>
+  </div>
+
+  <div id="loading" class="overlay"><div class="spinner"></div></div>
+
+  <script type="module" src="src/main.js"></script>
+</body>
+</html>
