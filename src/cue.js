@@ -19,10 +19,17 @@ export function createCue() {
   for (const s of sections) {
     const geo = new THREE.CylinderGeometry(s.r1, s.r0, s.len, 28, 1);
     geo.translate(0, y + s.len / 2, 0);
-    const m = new THREE.Mesh(geo, new THREE.MeshPhysicalMaterial(s.mat));
+    // transparent (opacity 1 normally) so the cue can fade in/out without a material/program switch
+    const m = new THREE.Mesh(geo, new THREE.MeshPhysicalMaterial({ ...s.mat, transparent: true }));
     m.castShadow = true;
     group.add(m);
     y += s.len;
   }
+  let op = 1;
+  group.userData.setOpacity = (o) => {
+    if (o === op) return;
+    op = o;
+    group.traverse((m) => { if (m.isMesh) { m.material.opacity = o; m.material.depthWrite = o > 0.6; m.castShadow = o > 0.5; } });
+  };
   return group;
 }
