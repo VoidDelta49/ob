@@ -21,6 +21,9 @@ export const PHYS = {
   muCushion: 0.14,   // cushion friction
   cushionNose: 0.0363, // cushion nose height above bed (≈ 63.5% of ball diameter)
   stopSpeed: 0.006,
+  eSlate: 0.5,       // ball–slate (through cloth) restitution, governs jump-shot hop height
+  settleVy: 0.05,    // vertical speed below which a bouncing ball is treated as resting on the cloth
+  squirt: 0.028,     // squirt angle (rad) per ball-radius of side offset, level cue
 };
 
 export const HEAD_X = -L / 4; // head string / head spot

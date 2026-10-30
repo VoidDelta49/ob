@@ -1,5 +1,6 @@
 // CPU opponent: generates geometric pot candidates (ghost-ball aiming, clear paths, cut/pocket angles),
 // then verifies the best ones by running the real physics headless and picks the best outcome.
+import { minElevation } from './cuephys.js';
 import { R, HL, HW, HEAD_X, FOOT_X, speedToPower, powerToSpeed } from './constants.js';
 import { pockets } from './table-geom.js';
 import { newLog, updateLog } from './physics.js';
@@ -65,7 +66,8 @@ function simulate(world, shot) {
   const cb = w.ball(0);
   cb.x = shot.cx ?? cb.x; cb.z = shot.cz ?? cb.z;
   if (shot.cx !== undefined) { cb.active = true; cb.pocketed = false; }
-  w.strike(Math.cos(shot.yaw), Math.sin(shot.yaw), shot.V, shot.a || 0, shot.b || 0);
+  // the CPU plays with the cue as low as the rail / balls allow, same as a human (see cuephys.minElevation)
+  w.strike(Math.cos(shot.yaw), Math.sin(shot.yaw), shot.V, shot.a || 0, shot.b || 0, minElevation(w, shot.yaw, shot.a || 0, shot.b || 0));
   const log = newLog();
   let t = 0;
   const sub = 1 / 700;

@@ -1,10 +1,10 @@
 // Headless screenshot harness: renders dist/index.html in Chromium (Playwright) and saves PNGs.
-// Usage: npm run build && node tools/screenshot.mjs [--mode practice] [--cam yaw,pitch,dist] [--aim yaw]
+// Usage: npm run build && node tools/screenshot.mjs [--mode practice] [--cam yaw,pitch,dist] [--aim yaw] [--tip a,b] [--elev rad] [--stance]
 //          [--shoot power] [--clean] [--q low] [--at 0,120,300] [--size 1280x720] [--out shots/name]
 //   --cam    orbit camera (radians, radians, metres); applied instantly via window.__pool.setCam
 //   --fixed  deterministic fake clock (recommended for animation frames; frames step at ~16 ms)
 //   --clean  hide all HTML UI; --q low uses the low-graphics path (much faster under software GL)
-//   --shoot  fire a shot after setup; --at lists capture times (ms after the shot, or after setup if no shot)
+//   --shoot  stroke the cue at this cue speed (m/s) after setup (rack + chalk are skipped); --at lists capture times (ms after the shot, or after setup if no shot)
 // Output: <out>-<ms>.png per capture time. Uses software GL, so it is slow but deterministic enough for visual checks.
 import path from 'node:path';
 import fs from 'node:fs';
@@ -35,11 +35,14 @@ await page.goto('file://' + path.resolve('dist/index.html') + (args.q ? '?q=' + 
 if (fixed) { for (let i = 0; i < 50 && !(await page.evaluate(() => !!window.__pool)); i++) await page.clock.runFor(100); }
 else await page.waitForFunction(() => !!window.__pool, null, { timeout: 30000 });
 if (args.clean) await page.addStyleTag({ content: '.overlay,#hud,#topbar,#controls,#hint,#toast{display:none!important}' });
-if (args.mode) await page.evaluate((m) => window.__pool.newGame(m), args.mode);
+if (args.mode) await page.evaluate((m) => { window.__pool.newGame(m); window.__pool.quickRack(); window.__pool.chalkFull(); }, args.mode);
+if (args.tip) await page.evaluate((t) => window.__pool.setTip(...t.split(',').map(Number)), args.tip);
+if (args.elev) await page.evaluate((e) => window.__pool.setElev(+e), args.elev);
 if (args.aim) await page.evaluate((y) => window.__pool.setAim(+y), args.aim);
 if (args.cam) await page.evaluate((c) => window.__pool.setCam(...c.split(',').map(Number)), args.cam);
 await advance(fixed ? 1500 : 400);
-if (args.shoot) await page.evaluate((p) => window.__pool.shoot(+p), args.shoot);
+if (args.stance) await page.evaluate(() => window.__pool.stance());
+if (args.shoot) await page.evaluate((v) => window.__pool.stroke(+v), args.shoot);
 let tNow = 0;
 for (const ms of at) {
   if (ms > tNow) { await advance(ms - tNow); tNow = ms; }
