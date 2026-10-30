@@ -161,8 +161,10 @@ export function buildRoom(scene) {
   floor.receiveShadow = true;
   scene.add(floor);
 
-  const walls = new THREE.Mesh(new THREE.BoxGeometry(14, 4, 14), new THREE.MeshStandardMaterial({ color: 0x241612, roughness: 0.9, side: THREE.BackSide }));
-  walls.position.y = FLOOR_Y + 2;
+  // Room box: its bottom face is sunk 0.2 m below the floor. If it sits at FLOOR_Y it is coplanar with
+  // the floor plane and z-fights (shimmering stripes across the far floor).
+  const walls = new THREE.Mesh(new THREE.BoxGeometry(14, 4.2, 14), new THREE.MeshStandardMaterial({ color: 0x241612, roughness: 0.9, side: THREE.BackSide }));
+  walls.position.y = FLOOR_Y + 1.9;
   scene.add(walls);
 
   // Billiard lamp: long hood with three shades

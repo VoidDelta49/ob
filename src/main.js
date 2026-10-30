@@ -26,7 +26,8 @@ const pmrem = new THREE.PMREMGenerator(renderer);
 scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
 scene.environmentIntensity = 0.32;
 
-const camera = new THREE.PerspectiveCamera(45, 1, 0.01, 40);
+// near/far kept tight for depth precision (camera never gets closer than ~0.3 m to anything but the cue butt)
+const camera = new THREE.PerspectiveCamera(45, 1, 0.03, 20);
 const { cloth } = buildTable(scene, 0x145c35);
 const { lamp } = buildRoom(scene);
 
@@ -76,6 +77,7 @@ let topView = false, guideOn = true;
 const spin = { a: 0, b: 0 };
 let power = 0;
 let ballInHand = false, kitchen = false;
+const camKick = { amp: 0, t: 9 }; // tiny camera recoil on the strike
 let shot = null, log = null, before = null, settleT = 0, cueHideT = 0;
 let ai = null;
 let dragging = false;
@@ -221,7 +223,16 @@ function shoot(p) {
   if (!(state === 'aim' || state === 'ai') || p < 0.01) return;
   const cb = world.ball(0);
   if (!cb.active) return;
-  shot = { power: p, t: 0, pull: 0.02 + p * 0.24, dur: 0.2 - p * 0.09 };
+  // Forward stroke from wherever the cue currently is, timed so the tip speed at contact matches the
+  // physics: cue ball speed V = v_cue·(1+e)·Mc/(Mc+Mb)  →  v_cue ≈ 0.73·V  (Mc 0.54 kg, Mb 0.17 kg, e≈0.8).
+  // Uniform acceleration over the pull distance d gives contact speed 2d/T, so T = 2d / v_cue.
+  // If the cue isn't drawn back (power set without the bar, e.g. __pool.shoot), take a quick backswing first.
+  const natural = 0.02 + p * 0.24;
+  const pullNow = Math.min(cueS.pull, natural + 0.03); // cap in case the cue is still sliding in
+  const back = pullNow < natural * 0.6 ? { from: pullNow, dur: 0.12 + p * 0.12, pause: 0.05 } : null;
+  const pull0 = Math.max(0.03, back ? natural : pullNow);
+  const vCue = 0.73 * powerToSpeed(p);
+  shot = { power: p, t: back ? -(back.dur + back.pause) : 0, back, pull0, vCue, dur: clamp((2 * pull0) / vCue, 0.06, 0.45), pose: cuePose(), struck: false };
   state = 'shooting';
   hint('');
   ui.controls.classList.add('disabled');
@@ -234,12 +245,15 @@ function strike() {
   world.acc = 0;
   world.strike(Math.cos(aimYaw), Math.sin(aimYaw), powerToSpeed(shot.power), spin.a, spin.b);
   sfx.cue(shot.power);
+  shot.struck = true; shot.t = 0;
+  shot.cb0 = { x: world.ball(0).x, z: world.ball(0).z };
+  camKick.amp = shot.power * shot.power; camKick.t = 0;
   ballInHand = false;
   if (game) game.kitchen = false;
   kitchen = false;
   state = 'rolling';
   settleT = 0;
-  cueHideT = 0.45;
+  cueHideT = CUE_FT_HOLD + CUE_RETRACT;
   power = 0; setPowerUI(0);
   turnsPlayed++;
 }
@@ -446,6 +460,7 @@ window.addEventListener('keydown', (e) => {
   if (e.code === 'KeyT') toggleTop();
   if (e.code === 'KeyG') toggleGuide();
   if (e.code === 'KeyM') toggleSound();
+  if (e.code === 'KeyF' && !e.repeat) toggleFullscreen();
   if (e.code === 'Escape') openMenu();
   if (e.code === 'Space') e.preventDefault();
   if (state === 'aim') {
@@ -474,6 +489,50 @@ function handleKeys(dt) {
   cam.yaw = aimYaw;
 }
 
+// ---------- fullscreen ----------
+// Browsers only allow requestFullscreen inside a user gesture, so it is requested when a game starts (button
+// click) and re-requested on the next tap/click/key while playing if we dropped out (phones lose it easily).
+// iPhone Safari has no element fullscreen at all; there the button is hidden (Add to Home Screen gives standalone).
+const fsRoot = document.documentElement;
+const fsSupported = !!(fsRoot.requestFullscreen || fsRoot.webkitRequestFullscreen) && (document.fullscreenEnabled ?? document.webkitFullscreenEnabled ?? true);
+const fsActive = () => !!(document.fullscreenElement || document.webkitFullscreenElement);
+const coarsePointer = matchMedia('(pointer: coarse)').matches;
+let fsWanted = false, fsSelfExit = false;
+function enterFullscreen() {
+  if (!fsSupported || fsActive()) return;
+  try {
+    const r = fsRoot.requestFullscreen ? fsRoot.requestFullscreen({ navigationUI: 'hide' }) : fsRoot.webkitRequestFullscreen();
+    if (r && r.catch) r.catch(() => {});
+  } catch {}
+}
+function exitFullscreen() {
+  if (!fsActive()) return;
+  fsSelfExit = true;
+  try { const r = document.exitFullscreen ? document.exitFullscreen() : document.webkitExitFullscreen(); if (r && r.catch) r.catch(() => {}); } catch {}
+}
+function toggleFullscreen() {
+  fsWanted = !fsActive();
+  if (fsWanted) enterFullscreen(); else exitFullscreen();
+}
+function onFsChange() {
+  const on = fsActive();
+  // Leaving via Esc on desktop means "I don't want fullscreen" — stop re-requesting. On touch devices an exit is
+  // usually an accidental edge swipe / back gesture, so keep re-entering on the next tap.
+  if (!on && !fsSelfExit && !coarsePointer) fsWanted = false;
+  fsSelfExit = false;
+  $('btnFs').classList.toggle('off', !on);
+  resize();
+}
+document.addEventListener('fullscreenchange', onFsChange);
+document.addEventListener('webkitfullscreenchange', onFsChange);
+const fsGesture = (e) => {
+  if (!fsWanted || state === 'menu' || fsActive()) return;
+  if (e.type === 'keydown' && (e.code === 'Escape' || e.code === 'KeyF')) return;
+  enterFullscreen();
+};
+// pointerup/click/keydown are activation-granting events on every engine (touch pointerdown is not)
+for (const ev of ['pointerup', 'click', 'keydown']) window.addEventListener(ev, fsGesture, true);
+
 // buttons
 function toggleTop() { topView = !topView; $('btnView').classList.toggle('off', !topView); showHint(); }
 function toggleGuide() { guideOn = !guideOn; $('btnGuide').classList.toggle('off', !guideOn); }
@@ -483,14 +542,17 @@ $('btnView').onclick = toggleTop;
 $('btnGuide').onclick = toggleGuide;
 $('btnSound').onclick = toggleSound;
 $('btnMenu').onclick = openMenu;
+$('btnFs').onclick = toggleFullscreen;
+if (!fsSupported) $('btnFs').style.display = 'none';
+$('btnFs').classList.add('off');
 $('btnView').classList.add('off');
 ui.resume.onclick = () => ui.menu.classList.add('hidden');
-document.querySelectorAll('[data-mode]').forEach((b) => (b.onclick = () => { sfx.init(); newGame(b.dataset.mode); }));
+document.querySelectorAll('[data-mode]').forEach((b) => (b.onclick = () => { sfx.init(); fsWanted = true; enterFullscreen(); newGame(b.dataset.mode); }));
 $('diff').onchange = (e) => (difficulty = e.target.value);
 $('gfx').value = gfx;
 $('gfx').onchange = (e) => { gfx = e.target.value; try { localStorage.setItem('ob-gfx', gfx); } catch {} applyGfx(); };
 $('clothSel').onchange = (e) => cloth.color.set(CLOTHS[e.target.value]);
-$('again').onclick = () => newGame(mode);
+$('again').onclick = () => { fsWanted = true; enterFullscreen(); newGame(mode); };
 $('toMenu').onclick = () => { ui.over.classList.add('hidden'); ui.menu.classList.remove('hidden'); ui.resume.classList.add('hidden'); state = 'menu'; };
 
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
@@ -516,22 +578,12 @@ function updateBalls(dt) {
   }
 }
 
-function updateCue(dt) {
+// Cue pose: anchored at the tip contact point on the cue ball, pointing back along `back`.
+// While aiming it is live; once the stroke starts it is frozen so the cue doesn't chase the moving ball.
+const CUE_FT_HOLD = 0.4, CUE_RETRACT = 0.45;
+const cueS = { pull: 0.4, shown: false, idle: 0, fade: 1, wasStruck: false };
+function cuePose() {
   const cb = world.ball(0);
-  const show = cb.active && (state === 'aim' || state === 'shooting' || state === 'ai' || cueHideT > 0);
-  cue.visible = show;
-  if (!show) return;
-  let pull;
-  if (state === 'shooting') {
-    shot.t += dt;
-    const f = Math.min(1, shot.t / shot.dur);
-    pull = shot.pull * (1 - f * f) - 0.006 * f;
-    if (f >= 1) { pull = -0.006; strike(); }
-  } else if (state === 'rolling') {
-    cueHideT -= dt;
-    pull = -0.006 - (0.45 - cueHideT) * 0.05;
-  } else pull = 0.02 + power * 0.24;
-
   const dx = Math.cos(aimYaw), dz = Math.sin(aimYaw);
   // elevate the butt enough to clear the rail behind the cue ball
   let tRail = Infinity;
@@ -543,8 +595,64 @@ function updateCue(dt) {
   const sx = -dz, sz = dx;
   const c = Math.sqrt(Math.max(0, 1 - spin.a * spin.a - spin.b * spin.b));
   const contact = new THREE.Vector3(cb.x + (sx * spin.a - dx * c) * R, R + spin.b * R, cb.z + (sz * spin.a - dz * c) * R);
-  const back = new THREE.Vector3(-dx * Math.cos(elev), Math.sin(elev), -dz * Math.cos(elev));
-  cue.position.copy(contact).addScaledVector(back, 0.003 + pull);
+  return { contact, dx, dz, elev };
+}
+const easeInOut = (u) => (u < 0.5 ? 2 * u * u : 1 - (-2 * u + 2) ** 2 / 2);
+
+function updateCue(dt) {
+  const cb = world.ball(0);
+  const struck = state === 'rolling' && shot && shot.struck && cueHideT > 0;
+  const show = struck || (cb.active && (state === 'aim' || state === 'shooting' || state === 'ai'));
+  if (!struck && cueS.wasStruck) cueS.shown = false; // shot ended mid-retract: slide back in, don't snap
+  cueS.wasStruck = struck;
+  if (!show) { cue.visible = cueS.shown = false; return; }
+  // slide in from behind when the cue (re)appears instead of popping in
+  if (!cueS.shown) { cueS.shown = true; cueS.pull = 0.45; cueS.fade = 0; }
+  cue.visible = true;
+  cueS.fade = Math.min(1, cueS.fade + dt * 4);
+
+  let pose, pull, opacity = 1;
+  if (state === 'shooting') {
+    pose = shot.pose;
+    shot.t += dt;
+    const f = Math.max(0, Math.min(1, shot.t / shot.dur));
+    pull = shot.pull0 * (1 - f * f); // uniform acceleration into the ball
+    if (shot.t < 0) { // backswing (t runs from −(dur+pause) to 0)
+      const u = Math.min(1, (shot.t + shot.back.dur + shot.back.pause) / shot.back.dur);
+      pull = shot.back.from + (shot.pull0 - shot.back.from) * easeInOut(u);
+    }
+    cueS.pull = pull;
+    if (f >= 1) { pull = 0; strike(); }
+  } else if (struck) {
+    pose = shot.pose;
+    shot.t += dt;
+    // follow-through: tip keeps going at v_cue and decays exponentially over distance d (10–20 cm on firm shots)
+    const d = 0.025 + 0.17 * shot.power;
+    let s = d * (1 - Math.exp((-shot.t * shot.vCue) / d));
+    // never push through the cue ball (stun / draw shots where it stays close or comes back)
+    if (cb.active) s = Math.min(s, Math.max(0, (cb.x - shot.cb0.x) * pose.dx + (cb.z - shot.cb0.z) * pose.dz - 0.002));
+    // ...or into the cloth when the cue is elevated (tip radius ≈ 6.4 mm)
+    s = Math.min(s, Math.max(0, pose.contact.y - 0.007) / Math.sin(pose.elev));
+    pull = -s;
+    // then the player recovers: ease the cue back a little and fade it out (lifting it swings the butt through
+    // the camera, which sits right behind the cue in the aim view)
+    const u = Math.min(1, Math.max(0, shot.t - CUE_FT_HOLD) / CUE_RETRACT);
+    if (u > 0) { const e = easeInOut(u); pull += e * 0.1; opacity = 1 - e; }
+    cueHideT -= dt;
+  } else {
+    pose = cuePose();
+    // follow the power bar smoothly; a slow breathing sway when idle so the cue feels held
+    const target = 0.02 + power * 0.24;
+    cueS.idle += dt;
+    const sway = power < 0.005 && humanTurn() ? 0.0025 * (1 - Math.cos(cueS.idle * 2.1)) : 0;
+    cueS.pull += (target + sway - cueS.pull) * (1 - Math.exp(-dt * (cueS.pull > target + 0.05 ? 9 : 28)));
+    pull = cueS.pull;
+  }
+
+  cue.userData.setOpacity(struck ? opacity : cueS.fade);
+  const el = pose.elev;
+  const back = new THREE.Vector3(-pose.dx * Math.cos(el), Math.sin(el), -pose.dz * Math.cos(el));
+  cue.position.copy(pose.contact).addScaledVector(back, 0.0015 + pull);
   cue.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), back);
 }
 
@@ -616,6 +724,10 @@ function updateCamera(dt) {
   const height = Math.max(sv / tf, sh / (tf * aspect)) * 1.1;
   topPos.set(0, height, 0.0001);
   const t = camS.top;
+  // pulse t/τ·e^(1−t/τ): smooth rise to 1 at τ = 50 ms, then decays; ≤ 1 cm back-and-down at full power
+  camKick.t += dt;
+  const kt = camKick.t / 0.05;
+  if (kt < 12) orbitPos.addScaledVector(new THREE.Vector3(dx, 0.35, dz), -0.01 * camKick.amp * kt * Math.exp(1 - kt));
   camera.position.lerpVectors(orbitPos, topPos, t);
   lookV.lerpVectors(orbitLook, new THREE.Vector3(0, 0, 0), t);
   upV.set(0, 1, 0).lerp(portrait ? new THREE.Vector3(-1, 0, 0) : new THREE.Vector3(0, 0, -1), t).normalize();
@@ -679,4 +791,5 @@ state = 'menu';
 requestAnimationFrame(frame);
 
 // expose for debugging / automated tests
-window.__pool = { fastForward: () => { if (state !== 'rolling') return; while (world.anyMoving()) { world.step(1 / 1500); processEvents(); } }, get world() { return world; }, get game() { return game; }, get state() { return state; }, newGame, shoot, setAim: (y) => { aimYaw = y; cam.yaw = y; }, toggleTop };
+window.__pool = { fastForward: () => { if (state !== 'rolling') return; while (world.anyMoving()) { world.step(1 / 1500); processEvents(); } }, get world() { return world; }, get game() { return game; }, get state() { return state; }, newGame, shoot, setAim: (y) => { aimYaw = y; cam.yaw = y; }, get cue() { return cue; }, snapshot: () => { renderer.render(scene, camera); return canvas.toDataURL('image/png'); }, get shot() { return shot; },
+  setCam: (yaw, pitch, dist) => { cam.yaw = camS.yaw = yaw; cam.pitch = camS.pitch = pitch; cam.dist = camS.dist = dist; }, toggleTop };

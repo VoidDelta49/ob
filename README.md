@@ -23,11 +23,14 @@ step and no game engine: open `index.html` from any static server.
 | Spin | tap the cue ball widget | W A S D, X to reset |
 | Shoot | pull power bar down, release | hold Space, release |
 | Ball in hand | drag the cue ball | |
+| Fullscreen | automatic on game start · ⛶ button | F |
 
 ## Run locally
 ```sh
 npx serve .          # or: python3 -m http.server
 npm install && npm test        # physics / rules / AI sanity tests
+npm run shot -- --fixed --q low --mode practice --aim 0 --shoot 0.6 --at 0,120,250,500 --out shots/stroke
+                               # headless render to PNGs (needs Playwright; see tools/screenshot.mjs)
 npm run build                  # single-file offline build -> dist/index.html
 ```
 
@@ -41,6 +44,7 @@ src/ai.js          CPU shot planner
 src/table.js       table, room and lamp meshes
 src/balls.js       ball textures / HUD icons
 src/cue.js         cue stick
+tools/screenshot.mjs  headless Playwright renderer (fake clock for animation frames)
 src/audio.js       synthesised SFX
 src/main.js        game loop, camera, input, HUD
 ```
