@@ -3,6 +3,8 @@ import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { R, HL, HW, HEAD_X, FOOT_X, powerToSpeed, speedToPower } from './constants.js';
 import { buildTable, buildRoom } from './table.js';
 import { createBallSet, ballIcon } from './balls.js';
+import { patchShadowFilter, setSurfaceQuality } from './surface.js';
+import { createPost } from './post.js';
 import { createCue } from './cue.js';
 import { World, rackPositions, newLog, updateLog, cueGeometry } from './physics.js';
 import { Chalk, cueStrike, cueSpeedFor, minElevation, bridgeOptions, bridgeWobble, BRIDGES, armSpeedLimit, strokeError, tipPoint, TIP_R, MAX_TIP, muTip, miscueLimit } from './cuephys.js';
@@ -12,7 +14,8 @@ import * as sfx from './audio.js';
 
 // ---------- renderer / scene ----------
 const canvas = document.getElementById('c');
-const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
+patchShadowFilter();
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: false, powerPreference: 'high-performance' });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
@@ -20,6 +23,8 @@ renderer.shadowMap.autoUpdate = false; // redrawn only when a shadow caster move
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 1.05;
 renderer.outputColorSpace = THREE.SRGBColorSpace;
+const post = createPost(renderer); // null without float render targets: then the scene renders straight to the canvas
+const draw = () => (post ? post.render(scene, camera, gfx === 'high') : renderer.render(scene, camera));
 
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x0b0907);
@@ -39,6 +44,7 @@ function applyGfx() {
   const hi = gfx === 'high';
   renderer.setPixelRatio(hi ? Math.min(window.devicePixelRatio, 2) : 1);
   renderer.shadowMap.enabled = hi;
+  setSurfaceQuality(hi);
   scene.traverse((o) => { if (o.material) o.material.needsUpdate = true; });
   forceRender = true;
   resize();
@@ -1370,7 +1376,7 @@ function frame(now) {
   updateRackFrame(dt);
   drawStroke(dt);
   updateCamera(dt);
-  if (renderOn && frameKey()) renderer.render(scene, camera);
+  if (renderOn && frameKey()) draw();
   if (firstFrame) { firstFrame = false; ui.loading.classList.add('hidden'); }
   requestAnimationFrame(frame);
 }
@@ -1378,6 +1384,7 @@ function frame(now) {
 function resize() {
   const w = window.innerWidth, h = window.innerHeight;
   renderer.setSize(w, h, false);
+  if (post) { const v = renderer.getDrawingBufferSize(new THREE.Vector2()); post.setSize(v.x, v.y); }
   forceRender = true;
   camera.aspect = w / h;
   camera.fov = w / h < 1 ? 58 : 45;
@@ -1404,7 +1411,7 @@ window.__pool = {
   newGame, shoot, setControls: applyControls, get controls() { return ctl; }, setPower, releasePower: () => { if (powerReady() && power > 0.015) { lastPower = power; shoot(power); } },
   get power() { return power; }, get aim() { return aimYaw; }, setAim: (y) => { aimYaw = y; cam.yaw = y; },
   set render(v) { renderOn = v; }, get tip() { return { ...tip } }, get lastStroke() { return lastStroke; }, get chalk() { return myChalk().mean(); }, get cue() { return cue; }, get shot() { return shot; }, get elev() { return { elev, elevMin, bridge, allowed: bridgeInfo.allowed } },
-  snapshot: () => { renderer.shadowMap.needsUpdate = true; renderer.render(scene, camera); return canvas.toDataURL('image/png'); },
+  snapshot: () => { renderer.shadowMap.needsUpdate = true; draw(); return canvas.toDataURL('image/png'); },
   setCam: (yaw, pitch, dist) => { cam.yaw = camS.yaw = yaw; cam.pitch = camS.pitch = pitch; cam.dist = camS.dist = dist; }, toggleTop,
   // realism helpers: chalk the tip fully, place the tip / butt, get down, strike with a given cue speed and drift
   chalkFull: () => { for (const c of chalks) c.fill(1); chalkedOnce = [true, true]; chalkUI = null; ui.chalkOv.classList.add('hidden'); },

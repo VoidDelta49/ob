@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { HL, HW, L, W, R } from './constants.js';
+import { patchMaterial, surfaceTexture, lumaHeight } from './surface.js';
 import { CW, RAIL_W, CUSHION_H, cushions, pockets, boundaryOutline, pocketRims } from './table-geom.js';
 
 export const BED_TOP = 0;
@@ -82,15 +83,29 @@ function noiseFill(ctx, w, h, base, amp, seed = 1) {
   ctx.putImageData(img, 0, 0);
 }
 
+// Plain-weave threads (8 px each, 64 per tile) over a fuzz of loose fibres: height drives parallax, normals and cavity AO.
+function weaveSurface() {
+  const N = 512, T = 8, h = new Float32Array(N * N), r = new Float32Array(N * N);
+  let s = 5; const rnd = () => ((s = (s * 16807) % 2147483647) / 2147483647);
+  for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) {
+    const warp = Math.sin(Math.PI * ((x % T) / T)), weft = Math.sin(Math.PI * ((y % T) / T));
+    const over = (((x / T) | 0) + ((y / T) | 0)) & 1;
+    const f = rnd();
+    h[y * N + x] = 0.25 + 0.55 * (over ? 0.7 * warp + 0.3 * weft : 0.7 * weft + 0.3 * warp) + 0.2 * f;
+    r[y * N + x] = 0.47 + 0.05 * f;
+  }
+  return surfaceTexture(N, N, h, r, 1.2);
+}
+
 function clothMaterial(color) {
   const map = canvasTex(256, 256, (ctx, w, h) => {
     noiseFill(ctx, w, h, [225, 225, 225], 22, 7);
     // faint weave
     ctx.globalAlpha = 0.05;
     for (let y = 0; y < h; y += 2) { ctx.fillStyle = y % 4 ? '#fff' : '#000'; ctx.fillRect(0, y, w, 1); }
-  }, [14, 7]);
-  const bump = canvasTex(256, 256, (ctx, w, h) => noiseFill(ctx, w, h, [128, 128, 128], 90, 3), [28, 14], false);
-  return new THREE.MeshStandardMaterial({ color, map, bumpMap: bump, bumpScale: 0.4, roughness: 0.94, metalness: 0, envMapIntensity: 0.15 });
+  }, [14, 14]);
+  return patchMaterial(new THREE.MeshStandardMaterial({ color, map, roughness: 0.94, metalness: 0, envMapIntensity: 0.15 }),
+    { surf: weaveSurface(), depth: 0.0008, phong: [0.012, 12] });
 }
 
 function woodMaterial() {
@@ -108,7 +123,10 @@ function woodMaterial() {
       ctx.stroke();
     }
   }, [1.5, 3]);
-  return new THREE.MeshPhysicalMaterial({ map, roughness: 0.42, clearcoat: 0.8, clearcoatRoughness: 0.12, envMapIntensity: 0.35 });
+  // grain lines are pores: lower, rougher, and they shape the base normal under the varnish
+  const h = lumaHeight(map.image, 10, 75), r = h.map((v) => 0.4 + (1 - v) * 0.3);
+  return patchMaterial(new THREE.MeshPhysicalMaterial({ map, roughness: 0.42, clearcoat: 0.8, clearcoatRoughness: 0.12, envMapIntensity: 0.35 }),
+    { surf: surfaceTexture(map.image.width, map.image.height, h, r, 1.2), depth: 0.0006, phong: [0.08, 70] });
 }
 
 export function buildTable(scene, clothColor = 0x1d6b40) {
@@ -193,7 +211,8 @@ export function buildRoom(scene) {
       ctx.fillStyle = 'rgba(0,0,0,0.5)'; ctx.fillRect(0, ((i + 1) * h) / 8 - 2, w, 2);
     }
   }, [6, 6]);
-  const floor = new THREE.Mesh(flat(new THREE.PlaneGeometry(14, 14)), new THREE.MeshStandardMaterial({ map: floorTex, roughness: 0.6, metalness: 0 }));
+  const floor = new THREE.Mesh(flat(new THREE.PlaneGeometry(14, 14)), patchMaterial(new THREE.MeshStandardMaterial({ map: floorTex, roughness: 0.6, metalness: 0 }),
+    (() => { const h = lumaHeight(floorTex.image, 8, 14); return { surf: surfaceTexture(512, 512, h, h.map((v) => 0.8 - v * 0.3), 2), depth: 0.005 }; })()));
   floor.position.y = FLOOR_Y;
   floor.receiveShadow = true;
   scene.add(floor);
@@ -223,10 +242,10 @@ export function buildRoom(scene) {
     s.position.set(x, lampY - 0.03, 0);
     s.target.position.set(x, 0, 0);
     s.castShadow = true;
-    s.shadow.mapSize.set(1024, 1024);
+    s.shadow.mapSize.set(1536, 1536); s.shadow.focus = 0.92;
     s.shadow.camera.near = 0.3; s.shadow.camera.far = 3;
     s.shadow.bias = -0.0004;
-    s.shadow.radius = 4;
+    s.shadow.radius = 3; // penumbra half-width in shadow-map texels (see patchShadowFilter)
     scene.add(s, s.target);
     lights.push(s);
   }

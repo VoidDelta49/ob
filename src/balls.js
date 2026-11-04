@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { R, BALL_COLORS } from './constants.js';
+import { patchMaterial } from './surface.js';
 
 // One 4x4 atlas holds all 16 ball skins (1024x512 cells), so every ball draws in a single instanced call.
 // Each skin sits inside a 16 px gutter of itself (wrapped across u, edge rows stretched across v) so mipmaps never bleed.
@@ -71,13 +72,17 @@ export function createBallSet() {
   const mat = new THREE.MeshPhysicalMaterial({
     map: ballAtlas(), roughness: 0.16, metalness: 0, clearcoat: 1, clearcoatRoughness: 0.03, envMapIntensity: 1.0,
   });
+  patchMaterial(mat, { phong: [0.2, 380] }); // tight Phong hot-spots of the three bulbs on top of the GGX + clearcoat lobes
+  const base = mat.onBeforeCompile;
   mat.onBeforeCompile = (sh) => {
+    base(sh);
     sh.vertexShader = sh.vertexShader
       .replace('#include <common>', '#include <common>\nattribute float aCell;')
       .replace('#include <uv_vertex>', `#include <uv_vertex>
         vMapUv = (vec2(mod(aCell, 4.0), floor(aCell / 4.0)) * vec2(${CW}.0, ${CH}.0) + vec2(${GUT}.0) + vMapUv * vec2(${IW}.0, ${IH}.0))
           / vec2(${CW * 4}.0, ${CH * 4}.0);`);
   };
+  mat.customProgramCacheKey = () => 'ball';
   const geo = new THREE.SphereGeometry(R, 48, 32);
   // canvas row 0 is the top (flipY): cell row k from the top sits at v-row 3 - k from the bottom
   geo.setAttribute('aCell', new THREE.InstancedBufferAttribute(new Float32Array(Array.from({ length: 16 }, (_, id) => (id % 4) + (3 - (id >> 2)) * 4)), 1));
