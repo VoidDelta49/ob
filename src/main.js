@@ -7,7 +7,8 @@ import { createCue } from './cue.js';
 import { World, rackPositions, newLog, updateLog, cueGeometry } from './physics.js';
 import { Chalk, cueStrike, cueSpeedFor, minElevation, bridgeOptions, bridgeWobble, BRIDGES, armSpeedLimit, strokeError, tipPoint, TIP_R, MAX_TIP, muTip, miscueLimit } from './cuephys.js';
 import { EightBall, groupBalls } from './rules.js';
-import { planShot } from './ai.js';
+import { planShot, setFlatCue } from './ai.js';
+import { CW, RAIL_W } from './table-geom.js';
 import * as sfx from './audio.js';
 
 // ---------- renderer / scene ----------
@@ -81,11 +82,16 @@ const ui = {
   tipPanel: $('tipPanel'), tipCanvas: $('tipCanvas'), elev: $('elev'), elevFill: $('elevFill'), elevMin: $('elevMin'), elevLabel: $('elevLabel'),
   bridgeBtn: $('bridgeBtn'), chalkBtn: $('chalkBtn'), downBtn: $('downBtn'), fine: $('fine'), fineTex: $('fineTex'),
   strokeCanvas: $('strokeCanvas'), report: $('report'), actBtn: $('actBtn'),
+  spin: $('spin'), spinDot: $('spinDot'), power: $('power'), powerLabel: $('powerLabel'), powerScale: $('powerScale'), powerLast: $('powerLast'), ctlSel: $('ctlSel'),
   chalkOv: $('chalkOv'), chalkCanvas: $('chalkCanvas'), chalkDone: $('chalkDone'), chalkTitle: $('chalkTitle'),
   menu: $('menu'), over: $('over'), loading: $('loading'), resume: $('resume'),
 };
 
 // ---------- game state ----------
+// Control scheme (a setting): 'classic' = spin ball + pull-down power bar, 'realistic' = chalk / bridge / live cue stroke
+let ctl = new URLSearchParams(location.search).get('ctl') || (() => { try { return localStorage.getItem('ob-ctl'); } catch { return null; } })() || 'classic';
+if (ctl !== 'realistic') ctl = 'classic';
+let classic = ctl === 'classic';
 let mode = null;            // 'cpu' | 'pvp' | 'practice'
 let difficulty = 'medium';
 let world = new World();
@@ -99,7 +105,8 @@ const tip = { a: 0, b: 0 };   // where the tip addresses the cue ball, in ball r
 let elevUser = 0, elevMin = 0, elev = 0; // butt elevation: chosen / forced by rail & balls / effective (rad)
 let bridge = 'closed', bridgePref = 'closed', bridgeInfo = { allowed: ['closed'], len: 0.2 };
 let setupKey = '';
-let power = 0;              // CPU stroke animation only
+let power = 0;              // classic: power-bar pull (0..1); realistic: CPU stroke animation only
+let powerDrag = null, powerShown = 0, lastPower = null;
 let ballInHand = false, kitchen = false;
 const camKick = { amp: 0, t: 9 };
 let shot = null, log = null, before = null, settleT = 0, cueHideT = 0;
@@ -158,12 +165,16 @@ function newGame(m) {
   ui.menu.classList.add('hidden'); ui.over.classList.add('hidden');
   ui.hud.classList.remove('hidden'); ui.topbar.classList.remove('hidden'); ui.controls.classList.remove('hidden');
   ui.resume.classList.remove('hidden');
-  $('btnGuide').style.display = m === 'practice' ? '' : 'none';
+  lastPower = null; power = 0; updateSpinDot();
+  syncGuideBtn();
   // the player who doesn't break racks (in practice you rack your own)
   const racker = game ? game.players[1 - breaker] : { name: 'You' };
   setupRack();
   updateHUD();
-  if (racker.isAI) {
+  if (classic) { // classic: the table is racked for you
+    ui.actBtn.classList.add('hidden');
+    startTurn(true);
+  } else if (racker.isAI) {
     const q = { easy: 0.0009, medium: 0.0005, hard: 0.0002 }[difficulty];
     setupRack({ gap: q * Math.random(), loose: q, apex: [(Math.random() - 0.5) * 0.004, (Math.random() - 0.5) * 0.004] });
     toast('CPU racks · you break');
@@ -179,15 +190,15 @@ function startTurn(first = false) {
   if (humanTurn()) {
     state = 'aim';
     cam.yaw = aimYaw;
-    nerves = pressure();
+    nerves = classic ? 0 : pressure();
     if (game && mode === 'pvp' && !first) toast(`${game.player.name} to shoot`);
     showHint();
     const pi = mode === 'pvp' ? pIdx() : 0;
-    if (!chalkedOnce[pi]) openChalk(true);
+    if (!classic && !chalkedOnce[pi]) openChalk(true);
   } else {
     state = 'ai';
     ai = { phase: 'think', t: 0 };
-    hint('CPU chalks up and studies the table…');
+    hint(classic ? 'CPU is studying the table…' : 'CPU chalks up and studies the table…');
   }
   ui.controls.classList.toggle('disabled', !humanTurn());
   refreshCueSetup();
@@ -217,6 +228,12 @@ function autoAim() {
 
 function showHint() {
   if (state === 'rack') return;
+  if (classic) {
+    if (state !== 'aim') return hint('');
+    if (ballInHand) return hint(kitchen ? 'Ball in hand (behind the head string) — drag the cue ball' : 'Ball in hand — drag the cue ball to place it');
+    if (turnsPlayed < 2) return hint(topView ? 'Tap the table to aim · pull the power handle down & release' : 'Drag to aim · pull the power handle down & release');
+    return hint('');
+  }
   if (state === 'stance') return hint(turnsPlayed < 3 ? 'Pull down to draw the cue back, push up through the ball — keep it straight' : '');
   if (state !== 'aim') return hint('');
   if (ballInHand) hint(kitchen ? 'Ball in hand (behind the head string) — drag the cue ball' : 'Ball in hand — drag the cue ball to place it');
@@ -290,14 +307,29 @@ function respot(id, x, z) {
 function refreshCueSetup(force = false) {
   const cb = world.ball(0);
   if (!cb || !cb.active) return;
-  const key = [aimYaw.toFixed(4), tip.a.toFixed(3), tip.b.toFixed(3), cb.x.toFixed(4), cb.z.toFixed(4), elevUser.toFixed(3), bridgePref, turnsPlayed].join();
+  const key = [aimYaw.toFixed(4), tip.a.toFixed(3), tip.b.toFixed(3), cb.x.toFixed(4), cb.z.toFixed(4), elevUser.toFixed(3), bridgePref, turnsPlayed, ctl].join();
   if (key === setupKey && !force) return;
   setupKey = key;
+  if (classic) { // level cue: the butt only rises as far as needed to clear the rail behind the ball
+    elevMin = elev = classicElev(cb);
+    bridgeInfo = { allowed: ['closed'], len: 0.2 }; bridge = 'closed';
+    return;
+  }
   elevMin = minElevation(world, aimYaw, tip.a, tip.b);
   elev = Math.max(elevUser, elevMin);
   bridgeInfo = bridgeOptions(world, aimYaw, elev);
   bridge = bridgeInfo.allowed.includes(bridgePref) ? bridgePref : bridgeInfo.allowed[0];
   updateCueUI();
+}
+
+function classicElev(cb) {
+  const dx = Math.cos(aimYaw), dz = Math.sin(aimYaw);
+  let tRail = Infinity;
+  if (dx > 1e-6) tRail = Math.min(tRail, (cb.x + HL + CW + RAIL_W * 0.6) / dx);
+  if (dx < -1e-6) tRail = Math.min(tRail, (HL + CW + RAIL_W * 0.6 - cb.x) / -dx);
+  if (dz > 1e-6) tRail = Math.min(tRail, (cb.z + HW + CW + RAIL_W * 0.6) / dz);
+  if (dz < -1e-6) tRail = Math.min(tRail, (HW + CW + RAIL_W * 0.6 - cb.z) / -dz);
+  return Math.max(0.045, Math.atan2(0.075 - R, Math.max(0.05, tRail - 0.03)));
 }
 
 function updateCueUI() {
@@ -474,8 +506,8 @@ ui.actBtn.onclick = () => {
 };
 
 // ---------- shooting ----------
-function shoot(p) { // CPU stroke: animate the cue, strike on contact
-  if (state !== 'ai' || p < 0.01) return;
+function shoot(p) { // animate the cue, strike on contact (CPU, or the human releasing the classic power bar)
+  if (!(state === 'ai' || (classic && state === 'aim' && humanTurn())) || p < 0.01) return;
   const cb = world.ball(0);
   if (!cb.active) return;
   const natural = 0.02 + p * 0.24;
@@ -483,15 +515,15 @@ function shoot(p) { // CPU stroke: animate the cue, strike on contact
   const back = pullNow < natural * 0.6 ? { from: pullNow, dur: 0.12 + p * 0.12, pause: 0.05 } : null;
   const pull0 = Math.max(0.03, back ? natural : pullNow);
   const vCue = cueSpeedFor(powerToSpeed(p), Math.hypot(tip.a, tip.b));
-  shot = { power: p, t: back ? -(back.dur + back.pause) : 0, back, pull0, vCue, dur: clamp((2 * pull0) / vCue, 0.06, 0.45), pose: cuePose(), struck: false, cpu: true };
+  shot = { power: p, t: back ? -(back.dur + back.pause) : 0, back, pull0, vCue, dur: clamp((2 * pull0) / vCue, 0.06, 0.45), pose: cuePose(), struck: false, cpu: state === 'ai' };
   state = 'shooting';
   hint('');
   ui.controls.classList.add('disabled');
 }
 
-function strike() { // CPU contact
+function strike() { // contact for a scripted stroke (CPU / classic power bar): clean hit, no stroke error, level cue in classic
   aiChalk.fill(1);
-  doStrike({ yaw: aimYaw, vCue: shot.vCue, a: tip.a, b: tip.b, elev, chalk: aiChalk, pose: shot.pose });
+  doStrike({ yaw: aimYaw, vCue: shot.vCue, a: tip.a, b: tip.b, elev: classic ? 0 : elev, chalk: aiChalk, pose: shot.pose });
 }
 
 // Human contact: the live stroke reached the ball.
@@ -529,6 +561,8 @@ function doStrike({ yaw, vCue, a, b, elev: e, chalk, pose }) {
   const res = cueStrike(world, Math.cos(yaw), Math.sin(yaw), { vCue, a, b, elev: e, chalk });
   const p = speedToPower(res.V);
   if (res.miscue) { sfx.miscue(); toast('Miscue!', true, 1800); } else sfx.cue(p);
+  if (humanTurn()) buzz(res.miscue ? [30, 40, 30] : Math.round(10 + 40 * p)); // the cue meeting the ball, felt in the hand
+  ui.power.classList.add('fired'); setTimeout(() => ui.power.classList.remove('fired'), 220);
   shot = { ...(shot || {}), power: p, vCue, pose, struck: true, t: 0, miscue: res.miscue };
   shot.cb0 = { x: world.ball(0).x, z: world.ball(0).z };
   camKick.amp = Math.min(1, p * p); camKick.t = 0;
@@ -612,7 +646,7 @@ const wrapAngle = (a) => Math.atan2(Math.sin(a), Math.cos(a));
 
 // ---------- stance ----------
 function enterStance() {
-  if (state !== 'aim' || !humanTurn() || chalkUI) return;
+  if (classic || state !== 'aim' || !humanTurn() || chalkUI) return;
   const cb = world.ball(0); if (!cb.active) return;
   refreshCueSetup(true);
   state = 'stance';
@@ -682,7 +716,7 @@ canvas.addEventListener('pointerdown', (e) => {
     drag = { type: 'place', ox: cb.x - pt.x, oz: cb.z - pt.z };
     return;
   }
-  if (canAim && topView && pt && mode === 'practice') {
+  if (canAim && topView && pt && (classic || mode === 'practice')) {
     drag = { type: 'aimTop' };
     aimYaw = Math.atan2(pt.z - cb.z, pt.x - cb.x);
     return;
@@ -789,6 +823,93 @@ ui.fine.addEventListener('pointermove', (e) => {
 ui.fine.addEventListener('pointerup', () => (fineDrag = null));
 ui.fine.addEventListener('pointercancel', () => (fineDrag = null));
 
+// ---------- classic controls: spin ball + power bar ----------
+// Haptics only fire when the last input was a finger/pen (desktop browsers ignore vibrate anyway).
+let touchSeen = false;
+window.addEventListener('pointerdown', (e) => { touchSeen = e.pointerType === 'touch' || e.pointerType === 'pen'; }, true);
+function buzz(pattern) { if (touchSeen && navigator.vibrate) { try { navigator.vibrate(pattern); } catch {} } }
+
+const SPIN_MAX = 0.5;                 // classic english limit, in ball radii
+const classicAim = () => classic && state === 'aim' && humanTurn();
+let spinWasCentre = true, spinTap = 0;
+function setSpinFromEvent(e) {
+  const r = ui.spin.getBoundingClientRect();
+  let x = ((e.clientX - r.left) / r.width) * 2 - 1, y = ((e.clientY - r.top) / r.height) * 2 - 1;
+  const m = Math.hypot(x, y);
+  if (m > 0.85) { x *= 0.85 / m; y *= 0.85 / m; }
+  tip.a = (x / 0.85) * SPIN_MAX; tip.b = (-y / 0.85) * SPIN_MAX;
+  // magnetic centre: the dot snaps home with a click when you pass over the middle
+  const centred = Math.hypot(tip.a, tip.b) < 0.06;
+  if (centred) { tip.a = tip.b = 0; }
+  if (centred && !spinWasCentre) { sfx.snap(); buzz(6); snapDot(); }
+  spinWasCentre = centred;
+  updateSpinDot();
+}
+function snapDot() { ui.spinDot.classList.add('snap'); setTimeout(() => ui.spinDot.classList.remove('snap'), 150); }
+function updateSpinDot() {
+  ui.spinDot.style.left = `${50 + (tip.a / SPIN_MAX) * 42.5}%`;
+  ui.spinDot.style.top = `${50 - (tip.b / SPIN_MAX) * 42.5}%`;
+}
+ui.spin.addEventListener('pointerdown', (e) => {
+  if (!classicAim()) return;
+  sfx.init();
+  ui.spin.setPointerCapture(e.pointerId); ui.spin.dataset.d = '1'; ui.spin.classList.add('drag');
+  const now = performance.now();
+  if (now - spinTap < 320) { tip.a = tip.b = 0; spinWasCentre = true; sfx.snap(); buzz(8); snapDot(); updateSpinDot(); spinTap = 0; return; } // double-tap centres
+  spinTap = now;
+  spinWasCentre = Math.hypot(tip.a, tip.b) < 0.06;
+  setSpinFromEvent(e);
+});
+ui.spin.addEventListener('pointermove', (e) => { if (ui.spin.dataset.d === '1') setSpinFromEvent(e); });
+const spinUp = () => { ui.spin.dataset.d = ''; ui.spin.classList.remove('drag'); };
+ui.spin.addEventListener('pointerup', spinUp);
+ui.spin.addEventListener('pointercancel', spinUp);
+
+// Power bar: grab the handle and pull it down; every 10 % is a click you can hear and feel, full power is a hard stop.
+// The cue in the 3D view draws back with the handle; letting go fires the stroke and the bar drains with the cue.
+const KNOB_H = 36;
+for (let k = 0; k <= 10; k++) { const t = document.createElement('b'); t.style.setProperty('--k', k / 10); if (k % 5 === 0) t.className = 'major'; ui.powerScale.appendChild(t); }
+const ticks = [...ui.powerScale.children];
+function setPower(v) {
+  v = clamp(v, 0, 1);
+  const was = power; power = v;
+  if (v >= 0.999 && was < 0.999) { sfx.tick(1, true); buzz(24); }
+  else if (Math.floor(v * 10 + 1e-6) !== Math.floor(was * 10 + 1e-6)) { sfx.tick(v); buzz(5); }
+}
+function renderPower(p, dragging) {
+  if (Math.abs(p - powerShown) < 0.0005 && ui.power.classList.contains('drag') === dragging) return;
+  powerShown = p;
+  ui.power.style.setProperty('--pn', p.toFixed(4));
+  ui.power.classList.toggle('max', p >= 0.999 && dragging);
+  ui.powerLabel.textContent = p > 0.005 ? `${Math.round(p * 100)}%` : 'PULL';
+  ticks.forEach((t, k) => t.classList.toggle('lit', k / 10 <= p + 1e-6 && p > 0.005));
+}
+function releasePower(cancel = false) {
+  if (!powerDrag && !cancel) return;
+  powerDrag = null; ui.power.classList.remove('drag');
+  if (!cancel && power > 0.015 && classicAim()) {
+    lastPower = power;
+    ui.power.style.setProperty('--ln', power.toFixed(3)); ui.powerLast.classList.remove('none');
+    shoot(power);
+  } else { if (power > 0.015) buzz(8); power = 0; }
+}
+ui.powerLast.classList.add('none');
+ui.power.addEventListener('pointerdown', (e) => {
+  if (!classicAim() || powerDrag) return;
+  sfx.init();
+  ui.power.setPointerCapture(e.pointerId);
+  const r = ui.power.getBoundingClientRect();
+  powerDrag = { id: e.pointerId, y0: e.clientY, p0: power, track: Math.max(60, r.height - KNOB_H) };
+  ui.power.classList.add('drag'); buzz(6);
+});
+ui.power.addEventListener('pointermove', (e) => {
+  if (!powerDrag || e.pointerId !== powerDrag.id) return;
+  setPower(powerDrag.p0 + (e.clientY - powerDrag.y0) / powerDrag.track);
+});
+ui.power.addEventListener('pointerup', (e) => { if (powerDrag && e.pointerId === powerDrag.id) releasePower(); });
+ui.power.addEventListener('pointercancel', (e) => { if (powerDrag && e.pointerId === powerDrag.id) releasePower(true); });
+ui.power.addEventListener('lostpointercapture', (e) => { if (powerDrag && e.pointerId === powerDrag.id) releasePower(true); });
+
 // tip placement on the ball face
 const canSetUp = () => (state === 'aim' || state === 'stance') && humanTurn() && stroke.id === null;
 const setTipFromEvent = (e) => {
@@ -837,23 +958,28 @@ window.addEventListener('keydown', (e) => {
   if (e.code === 'KeyM') toggleSound();
   if (e.code === 'KeyF') toggleFullscreen();
   if (e.code === 'Escape') openMenu();
-  if (e.code === 'Space') { e.preventDefault(); state === 'stance' ? leaveStance() : enterStance(); }
+  if (e.code === 'Space') { e.preventDefault(); if (!classic) state === 'stance' ? leaveStance() : enterStance(); }
   if (canSetUp() && !chalkUI) {
-    const st = 0.06;
+    const st = classic ? 0.08 : 0.06, mx = classic ? SPIN_MAX : MAX_TIP;
     if (e.code === 'KeyW') tip.b += st;
     if (e.code === 'KeyS') tip.b -= st;
     if (e.code === 'KeyA') tip.a -= st;
     if (e.code === 'KeyD') tip.a += st;
     if (e.code === 'KeyX') tip.a = tip.b = 0;
-    const m = Math.hypot(tip.a, tip.b); if (m > MAX_TIP) { tip.a *= MAX_TIP / m; tip.b *= MAX_TIP / m; }
-    if (e.code === 'KeyQ') elevUser = clamp(Math.max(elevUser, elev) + 0.035, 0, 1.35);
-    if (e.code === 'KeyE') elevUser = clamp(Math.min(elevUser, elev) - 0.035, 0, 1.35);
-    if (e.code === 'KeyB') cycleBridge();
-    if (e.code === 'KeyC') ui.chalkBtn.onclick();
+    const m = Math.hypot(tip.a, tip.b); if (m > mx) { tip.a *= mx / m; tip.b *= mx / m; }
+    if (!classic) {
+      if (e.code === 'KeyQ') elevUser = clamp(Math.max(elevUser, elev) + 0.035, 0, 1.35);
+      if (e.code === 'KeyE') elevUser = clamp(Math.min(elevUser, elev) - 0.035, 0, 1.35);
+      if (e.code === 'KeyB') cycleBridge();
+      if (e.code === 'KeyC') ui.chalkBtn.onclick();
+    } else updateSpinDot();
     refreshCueSetup();
   }
 });
-window.addEventListener('keyup', (e) => keys.delete(e.code));
+window.addEventListener('keyup', (e) => {
+  keys.delete(e.code);
+  if (e.code === 'Space' && classicAim() && !powerDrag) { if (power > 0.015) { lastPower = power; ui.power.style.setProperty('--ln', power.toFixed(3)); ui.powerLast.classList.remove('none'); shoot(power); } else power = 0; }
+});
 function handleKeys(dt) {
   if (!(state === 'aim' || state === 'stance') || !humanTurn()) return;
   const fine = keys.has('ShiftLeft') || keys.has('ShiftRight') || state === 'stance' ? 0.08 : 1;
@@ -861,6 +987,7 @@ function handleKeys(dt) {
   if (keys.has('ArrowRight')) aimYaw += 0.9 * fine * dt;
   if (state === 'aim' && keys.has('ArrowUp')) cam.pitch = clamp(cam.pitch + 0.8 * dt, 0.03, 1.45);
   if (state === 'aim' && keys.has('ArrowDown')) cam.pitch = clamp(cam.pitch - 0.8 * dt, 0.03, 1.45);
+  if (classicAim() && !powerDrag && keys.has('Space')) setPower(power + dt * 0.55); // hold Space to charge, release to shoot
   cam.yaw = aimYaw;
 }
 
@@ -921,8 +1048,46 @@ $('btnFs').onclick = toggleFullscreen;
 if (!fsSupported) $('btnFs').style.display = 'none';
 $('btnFs').classList.add('off');
 $('btnView').classList.add('off');
-ui.resume.onclick = () => ui.menu.classList.add('hidden');
+ui.resume.onclick = () => { ui.menu.classList.add('hidden'); onResume(); };
 document.querySelectorAll('[data-mode]').forEach((b) => (b.onclick = () => { sfx.init(); fsWanted = true; enterFullscreen(); newGame(b.dataset.mode); }));
+// ---------- controls setting ----------
+function syncGuideBtn() {
+  $('btnGuide').style.display = classic || mode === 'practice' ? '' : 'none';
+  $('btnGuide').title = classic ? 'Aim guide (G)' : 'Aim guide — practice only (G)';
+}
+function applyControls(v, persist = true) {
+  ctl = v === 'realistic' ? 'realistic' : 'classic';
+  classic = ctl === 'classic';
+  if (persist) { try { localStorage.setItem('ob-ctl', ctl); } catch {} }
+  document.body.classList.toggle('classic', classic);
+  ui.ctlSel.value = ctl;
+  $('subtitle').textContent = classic ? 'Real-physics 8-ball · pull the power bar, release to shoot' : 'Real-physics 8-ball · no aim lines · no power bar';
+  setFlatCue(classic);
+  syncGuideBtn();
+  setupKey = '';
+  if (powerDrag) { powerDrag = null; ui.power.classList.remove('drag'); }
+  power = 0;
+  if (classic) {
+    if (state === 'stance') leaveStance();
+    if (chalkUI) { chalkUI = null; ui.chalkOv.classList.add('hidden'); }
+    const m = Math.hypot(tip.a, tip.b); if (m > SPIN_MAX) { tip.a *= SPIN_MAX / m; tip.b *= SPIN_MAX / m; }
+    if (state === 'rack' && rack) { // classic tables are racked for you: finish the rack and break
+      rack.apex = [0, 0]; rack.gap = 0.00002; rack.loose = 0.0001; layoutRack();
+      rackFrame.visible = false; rack = null; ui.actBtn.classList.add('hidden');
+      startTurn(true);
+    }
+  }
+  updateSpinDot();
+  if (world.ball(0)) refreshCueSetup(true);
+  showHint();
+}
+// back from the menu: realistic play needs a chalked tip before the first shot
+function onResume() {
+  const pi = mode === 'pvp' ? pIdx() : 0;
+  if (!classic && state === 'aim' && humanTurn() && !chalkedOnce[pi] && !chalkUI) openChalk(true);
+}
+ui.ctlSel.onchange = (e) => applyControls(e.target.value);
+
 $('diff').onchange = (e) => (difficulty = e.target.value);
 $('gfx').value = gfx;
 $('gfx').onchange = (e) => { gfx = e.target.value; try { localStorage.setItem('ob-gfx', gfx); } catch {} applyGfx(); };
@@ -979,7 +1144,7 @@ function updateCue(dt) {
   const show = struck || (cb.active && (state === 'aim' || state === 'stance' || state === 'shooting' || state === 'ai'));
   if (!struck && cueS.wasStruck) cueS.shown = false;
   cueS.wasStruck = struck;
-  cue.userData.setChalk(myChalk().mean() * 1.3);
+  cue.userData.setChalk(classic ? 1.1 : myChalk().mean() * 1.3);
   if (!show) { cue.visible = cueS.shown = false; return; }
   if (!cueS.shown) { cueS.shown = true; cueS.pull = 0.45; cueS.fade = 0; }
   cue.visible = true;
@@ -1015,11 +1180,14 @@ function updateCue(dt) {
     pull = cueS.pull;
   } else {
     pose = cuePose();
-    const target = state === 'ai' ? 0.02 + power * 0.24 : 0.06;
+    const charging = state === 'ai' || (classic && state === 'aim');
+    const target = charging ? 0.02 + power * 0.24 : 0.06;
     cueS.idle += dt;
-    const breathe = humanTurn() ? 0.003 * (1 - Math.cos(cueS.idle * 2.1)) : 0;
+    const breathe = humanTurn() && !(classic && power > 0.005) ? 0.003 * (1 - Math.cos(cueS.idle * 2.1)) : 0;
     cueS.pull += (target + breathe - cueS.pull) * (1 - Math.exp(-dt * (cueS.pull > target + 0.05 ? 9 : 28)));
     pull = cueS.pull;
+    // a hard pull makes the arm strain: the cue trembles, more and more as the handle nears the stop
+    if (classic && powerDrag && power > 0.7) pull += 0.0018 * ((power - 0.7) / 0.3) ** 1.5 * Math.sin(cueS.idle * 58);
   }
 
   cue.userData.setOpacity(struck ? opacity : cueS.fade);
@@ -1027,10 +1195,21 @@ function updateCue(dt) {
   cue.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), pose.back);
 }
 
+// The bar shows what you hold while dragging, then drains in step with the cue's forward stroke.
+function updatePowerBar(dt) {
+  if (!classic) return;
+  let target = 0;
+  if (state === 'aim' || state === 'ai') target = power;
+  else if (state === 'shooting' && shot) target = shot.power * clamp(cueS.pull / shot.pull0, 0, 1);
+  const dragging = !!powerDrag;
+  const next = dragging ? target : powerShown + (target - powerShown) * (1 - Math.exp(-dt * 30));
+  renderPower(next, dragging);
+}
+
 function updateGuide() {
   const cb = world.ball(0);
-  // aim guide is a practice-mode training aid only; in matches you sight the shot yourself
-  const show = mode === 'practice' && guideOn && cb.active && (state === 'aim' || state === 'stance');
+  // realistic mode: the guide is a practice-only training aid (you sight matches yourself); classic keeps it everywhere
+  const show = (classic || mode === 'practice') && guideOn && cb.active && (state === 'aim' || state === 'stance');
   guideLine.visible = obLine.visible = cbLine.visible = ghost.visible = false;
   if (!show) return;
   const dx = Math.cos(aimYaw), dz = Math.sin(aimYaw);
@@ -1169,6 +1348,7 @@ function frame(now) {
   ui.controls.classList.toggle('disabled', !((state === 'aim' || state === 'stance') && humanTurn()));
   updateBalls(dt);
   updateCue(dt);
+  updatePowerBar(dt);
   updateGuide();
   updateRackFrame(dt);
   drawStroke(dt);
@@ -1189,6 +1369,7 @@ function resize() {
 window.addEventListener('resize', resize);
 resize();
 applyGfx();
+applyControls(ctl, false);
 
 // attract mode behind the menu
 setupRack();
@@ -1200,7 +1381,8 @@ requestAnimationFrame(frame);
 window.__pool = {
   fastForward: () => { if (state !== 'rolling') return; while (world.anyMoving()) { world.step(1 / 1500); processEvents(); } },
   get world() { return world; }, get game() { return game; }, get state() { return state; }, get rack() { return rack; },
-  newGame, shoot, setAim: (y) => { aimYaw = y; cam.yaw = y; },
+  newGame, shoot, setControls: applyControls, get controls() { return ctl; }, setPower, releasePower: () => { if (classicAim() && power > 0.015) { lastPower = power; shoot(power); } },
+  get power() { return power; }, setAim: (y) => { aimYaw = y; cam.yaw = y; },
   set render(v) { renderOn = v; }, get tip() { return { ...tip } }, get lastStroke() { return lastStroke; }, get chalk() { return myChalk().mean(); }, get cue() { return cue; }, get shot() { return shot; }, get elev() { return { elev, elevMin, bridge, allowed: bridgeInfo.allowed } },
   snapshot: () => { renderer.render(scene, camera); return canvas.toDataURL('image/png'); },
   setCam: (yaw, pitch, dist) => { cam.yaw = camS.yaw = yaw; cam.pitch = camS.pitch = pitch; cam.dist = camS.dist = dist; }, toggleTop,

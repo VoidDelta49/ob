@@ -19,7 +19,7 @@ const browser = await chromium.launch({ args: ['--use-gl=angle', '--use-angle=sw
 const page = await browser.newPage({ viewport: { width: W, height: H } });
 const errors = [];
 page.on('pageerror', (e) => errors.push(e.message));
-await page.goto('file://' + path.resolve('dist/index.html') + '?q=low');
+await page.goto('file://' + path.resolve('dist/index.html') + '?q=low&ctl=realistic');
 await page.waitForFunction(() => !!window.__pool, null, { timeout: 60000 });
 const P = (f) => page.evaluate(f);
 const shot = async (n) => { await page.screenshot({ path: `${out}-${n}.png`, timeout: 120000 }); console.log('  saved', `${out}-${n}.png`); };

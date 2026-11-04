@@ -89,3 +89,17 @@ export function chalk(speed) {
 export function slate(speed) {
   burst({ vol: Math.min(0.6, 0.12 + speed * 0.15), freq: 220, q: 0.7, dur: 0.07, type: 'lowpass', tone: 95, toneDur: 0.05 });
 }
+// Power-bar detents: a soft wooden click that rises in pitch with the pull. `max` is the heavy stop at full power.
+let lastTick = 0;
+export function tick(level = 0, max = false) {
+  if (!ctx || !enabled) return;
+  const n = ctx.currentTime;
+  if (n - lastTick < 0.025) return;
+  lastTick = n;
+  if (max) { burst({ vol: 0.55, freq: 300, q: 0.8, dur: 0.09, type: 'lowpass', tone: 140, toneDur: 0.08 }); return; }
+  burst({ vol: 0.07 + level * 0.1, freq: 1500 + level * 1400, q: 3, dur: 0.018, tone: 1100 + level * 900, toneDur: 0.012 });
+}
+// Gentle snap when the cue-tip dot finds the centre of the ball.
+export function snap() {
+  burst({ vol: 0.09, freq: 2300, q: 4, dur: 0.015, tone: 1700, toneDur: 0.012 });
+}

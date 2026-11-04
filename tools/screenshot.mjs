@@ -1,6 +1,7 @@
 // Headless screenshot harness: renders dist/index.html in Chromium (Playwright) and saves PNGs.
 // Usage: npm run build && node tools/screenshot.mjs [--mode practice] [--cam yaw,pitch,dist] [--aim yaw] [--tip a,b] [--elev rad] [--stance]
 //          [--shoot power] [--clean] [--q low] [--at 0,120,300] [--size 1280x720] [--out shots/name]
+//   --ctl    classic | realistic (default realistic here, since most options below drive the realistic stroke)
 //   --cam    orbit camera (radians, radians, metres); applied instantly via window.__pool.setCam
 //   --fixed  deterministic fake clock (recommended for animation frames; frames step at ~16 ms)
 //   --clean  hide all HTML UI; --q low uses the low-graphics path (much faster under software GL)
@@ -31,7 +32,7 @@ const fixed = !!args.fixed;
 if (fixed) await page.clock.install();
 const advance = async (ms) => (fixed ? page.clock.runFor(ms) : page.waitForTimeout(ms));
 page.on('pageerror', (e) => console.error('pageerror:', e.message));
-await page.goto('file://' + path.resolve('dist/index.html') + (args.q ? '?q=' + args.q : ''));
+await page.goto('file://' + path.resolve('dist/index.html') + '?ctl=' + (args.ctl || 'realistic') + (args.q ? '&q=' + args.q : ''));
 if (fixed) { for (let i = 0; i < 50 && !(await page.evaluate(() => !!window.__pool)); i++) await page.clock.runFor(100); }
 else await page.waitForFunction(() => !!window.__pool, null, { timeout: 30000 });
 if (args.clean) await page.addStyleTag({ content: '.overlay,#hud,#topbar,#controls,#hint,#toast{display:none!important}' });

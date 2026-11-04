@@ -12,6 +12,8 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: #0b0907; col
   font: 14px/1.35 ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; user-select: none; -webkit-user-select: none; }
 canvas#c { position: fixed; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; }
 .hidden { display: none !important; }
+/* control scheme: body.classic = power bar + spin ball, otherwise realistic stroke controls */
+body.classic .real-only, body:not(.classic) .classic-only { display: none !important; }
 button { font: inherit; color: inherit; cursor: pointer; }
 
 /* HUD */
@@ -42,6 +44,48 @@ button { font: inherit; color: inherit; cursor: pointer; }
 
 /* Controls */
 #controls { position: fixed; inset: auto 0 0 0; height: 0; }
+/* Classic controls: spin ball (bottom-left), fine-aim strip, tactile power bar (bottom-right) */
+#spin { position: fixed; left: 14px; bottom: calc(14px + var(--safe-b)); width: 86px; height: 86px; border-radius: 50%; touch-action: none; cursor: crosshair;
+  background: radial-gradient(circle at 36% 30%, #fffdf6 0 8%, #f1ece0 30%, #cfc7b5 72%, #8f8676 100%);
+  box-shadow: 0 6px 20px rgba(0,0,0,.55), inset 0 0 0 1px rgba(0,0,0,.25); transition: box-shadow .15s, transform .15s; }
+#spin.drag { transform: scale(1.06); box-shadow: 0 8px 26px rgba(0,0,0,.6), 0 0 0 2px rgba(214,167,74,.7), inset 0 0 0 1px rgba(0,0,0,.25); }
+#spin::before, #spin::after { content: ""; position: absolute; background: rgba(0,0,0,.14); }
+#spin::before { left: 50%; top: 12%; bottom: 12%; width: 1px; }
+#spin::after { top: 50%; left: 12%; right: 12%; height: 1px; }
+#spinRing { position: absolute; inset: 7.5%; border-radius: 50%; border: 1px dashed rgba(0,0,0,.28); pointer-events: none; }
+#spinDot { position: absolute; width: 16px; height: 16px; border-radius: 50%; background: #c0262b; border: 2px solid #fff;
+  left: 50%; top: 50%; transform: translate(-50%, -50%); box-shadow: 0 1px 4px rgba(0,0,0,.5); z-index: 1; pointer-events: none; }
+#spinDot.snap { transition: left .12s ease-out, top .12s ease-out; }
+body.classic #fine { left: 50%; bottom: calc(18px + var(--safe-b)); width: min(340px, calc(100% - 260px)); }
+
+#power { --pn: 0; --ln: 0; position: fixed; right: 14px; bottom: calc(14px + var(--safe-b)); width: 62px; height: min(48vh, 310px); border-radius: 18px; touch-action: none; cursor: grab;
+  background: linear-gradient(#1c140d, #0d0906); border: 1px solid var(--line); overflow: hidden;
+  box-shadow: 0 6px 20px rgba(0,0,0,.55), inset 0 0 14px rgba(0,0,0,.7); transition: border-color .15s, box-shadow .2s; }
+#power.drag { cursor: grabbing; border-color: var(--gold); box-shadow: 0 6px 24px rgba(0,0,0,.6), 0 0 18px rgba(214,167,74,calc(.12 + .4 * var(--pn))), inset 0 0 14px rgba(0,0,0,.7); }
+#powerScale b { position: absolute; right: 0; width: 10px; height: 1px; background: rgba(243,234,216,.3); top: calc(18px + (100% - 36px) * var(--k)); pointer-events: none; }
+#powerScale b.major { width: 18px; background: rgba(243,234,216,.5); }
+#powerScale b.lit { background: #fff; }
+#powerFill { position: absolute; inset: 0; pointer-events: none; opacity: .92;
+  background: linear-gradient(180deg, #f6dc98, #d6a74a 40%, #d9702f 72%, #c8423a);
+  clip-path: inset(0 0 calc(100% - 18px - (100% - 36px) * var(--pn)) 0); }
+#powerLast { position: absolute; left: 0; right: 0; height: 0; pointer-events: none; border-top: 1px dashed rgba(255,255,255,.7);
+  top: calc(18px + (100% - 36px) * var(--ln)); }
+#powerLast::before { content: ""; position: absolute; left: 0; top: -4px; border: 4px solid transparent; border-left-color: rgba(255,255,255,.85); border-right: 0; }
+#powerLast.none { display: none; }
+#powerKnob { position: absolute; left: 5px; right: 5px; height: 36px; border-radius: 12px; pointer-events: none;
+  top: calc((100% - 36px) * var(--pn));
+  background: linear-gradient(#f3d994, #c99b3d 55%, #a87a28);
+  box-shadow: 0 3px 8px rgba(0,0,0,.65), inset 0 1px 0 rgba(255,255,255,.55), inset 0 -2px 0 rgba(0,0,0,.25);
+  transition: transform .12s, filter .12s; }
+#powerKnob i { position: absolute; left: 14px; right: 14px; top: 11px; height: 14px;
+  background: repeating-linear-gradient(180deg, rgba(60,36,8,.55) 0 2px, rgba(255,255,255,.35) 2px 4px); border-radius: 3px; }
+#power.drag #powerKnob { transform: scale(1.07); filter: brightness(1.08); }
+#power.max #powerKnob { background: linear-gradient(#ffb09a, #d8503f 55%, #a8301f); animation: powerShake .09s linear infinite; }
+#power.fired #powerKnob { filter: brightness(1.4); }
+@keyframes powerShake { 0% { translate: -1px 0; } 50% { translate: 1px 0; } 100% { translate: -1px 0; } }
+#powerLabel { position: absolute; inset: auto 0 9px 0; text-align: center; font-size: 11px; font-weight: 650; letter-spacing: .14em; color: var(--muted); text-shadow: 0 1px 3px #000; pointer-events: none; }
+#power.drag #powerLabel { color: #fff; }
+
 #tipPanel { position: fixed; left: 10px; bottom: calc(10px + var(--safe-b)); width: 150px; height: 100px; border-radius: 14px; background: var(--glass);
   border: 1px solid var(--line); backdrop-filter: blur(6px); box-shadow: 0 6px 20px rgba(0,0,0,.5); }
 #tipCanvas { width: 100%; height: 100%; display: block; touch-action: none; }
@@ -108,6 +152,10 @@ select { background: #1a130d; color: var(--ink); border: 1px solid var(--line); 
   #hud { width: calc(100% - 64px); left: 8px; transform: none; }
   #turn { display: none; }
   .player { padding: 5px 8px; }
+  body.classic #spin { width: 72px; height: 72px; }
+  body.classic #power { width: 54px; }
+  body.classic #fine { width: calc(100% - 210px); bottom: calc(18px + var(--safe-b)); height: 44px; }
+  body.classic #hint { bottom: calc(110px + var(--safe-b)); }
   #tipPanel { width: 120px; height: 84px; }
   #elev { left: 136px; height: 84px; width: 30px; }
   #cueBtns { left: 172px; }
