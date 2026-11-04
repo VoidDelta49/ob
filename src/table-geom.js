@@ -51,7 +51,9 @@ for (const c of cushions) {
 // Outline of the cloth bed / rail opening at the cushion back line, with pocket bites.
 // inward=true  -> bed outline (pocket circles cut away)
 // inward=false -> wood rail opening (bulges out around pockets)
-export function boundaryOutline(inward, arcSteps = 18) {
+// `rims`, when given, collects the arcs that follow each pocket circle ({ p, a1, delta }: start angle and signed sweep), so the
+// renderer can line and trim the very same opening the outline describes.
+export function boundaryOutline(inward, arcSteps = 18, rims = null) {
   const X = HL + CW, Z = HW + CW;
   const pts = [];
   const arc = (p, a, b, outward) => {
@@ -61,6 +63,7 @@ export function boundaryOutline(inward, arcSteps = 18) {
     const mid = a1 + delta / 2;
     const midOut = Math.cos(mid) * p.facing.x + Math.sin(mid) * p.facing.z > 0;
     if (midOut !== outward) delta -= 2 * Math.PI; // use the other way round
+    if (rims) rims.push({ p, a1, delta });
     for (let i = 0; i <= arcSteps; i++) {
       const t = a1 + (delta * i) / arcSteps;
       pts.push([p.x + Math.cos(t) * p.r, p.z + Math.sin(t) * p.r]);
@@ -88,4 +91,11 @@ export function boundaryOutline(inward, arcSteps = 18) {
   side(1, false);
   corner(-1, 1, false);
   return pts;
+}
+
+// The wood rail's pocket openings: one back-of-the-pocket arc per pocket (corner arcs ~236 degrees, side ~198).
+export function pocketRims() {
+  const rims = [];
+  boundaryOutline(false, 1, rims);
+  return rims;
 }

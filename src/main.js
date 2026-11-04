@@ -81,7 +81,7 @@ const ui = {
   tipPanel: $('tipPanel'), tipCanvas: $('tipCanvas'), elev: $('elev'), elevFill: $('elevFill'), elevMin: $('elevMin'), elevLabel: $('elevLabel'),
   bridgeBtn: $('bridgeBtn'), chalkBtn: $('chalkBtn'), downBtn: $('downBtn'), fine: $('fine'), fineTex: $('fineTex'),
   strokeCanvas: $('strokeCanvas'), report: $('report'), actBtn: $('actBtn'),
-  power: $('power'), powerLabel: $('powerLabel'), powerScale: $('powerScale'), powerLast: $('powerLast'), ctlSel: $('ctlSel'),
+  power: $('power'), powerKnob: $('powerKnob'), powerLabel: $('powerLabel'), powerScale: $('powerScale'), powerLast: $('powerLast'), ctlSel: $('ctlSel'),
   chalkOv: $('chalkOv'), chalkCanvas: $('chalkCanvas'), chalkDone: $('chalkDone'), chalkTitle: $('chalkTitle'),
   menu: $('menu'), over: $('over'), loading: $('loading'), resume: $('resume'),
 };
@@ -225,10 +225,10 @@ function autoAim() {
 
 function showHint() {
   if (state === 'rack') return;
-  if (state === 'stance') return hint(turnsPlayed < 3 ? (classic ? 'Drag sideways to aim, up/down to raise the butt · pull the power handle down & release' : 'Pull down to draw the cue back, push up through the ball — keep it straight') : '');
+  if (state === 'stance') return hint(turnsPlayed < 3 ? (classic ? 'Drag sideways to aim, up/down to raise the butt · pull the power handle down & release to shoot' : 'Pull down to draw the cue back, push up through the ball — keep it straight') : '');
   if (state !== 'aim') return hint('');
   if (ballInHand) hint(kitchen ? 'Ball in hand (behind the head string) — drag the cue ball' : 'Ball in hand — drag the cue ball to place it');
-  else if (turnsPlayed < 3) hint(classic ? 'Drag to aim · set tip & butt height · Get down to settle in · pull the power handle to shoot' : 'Drag to aim · set tip & butt height · Get down to shoot');
+  else if (turnsPlayed < 3) hint(classic ? 'Drag to aim · set tip & butt height · tap Get down to bring up the power bar' : 'Drag to aim · set tip & butt height · Get down to shoot');
   else hint('');
 }
 function hint(t) { ui.hint.textContent = t; ui.hint.classList.toggle('hidden', !t); }
@@ -322,9 +322,19 @@ function updateCueUI() {
 }
 
 // Ball-face view: where the tip sits on the cue ball, plus a close-up of the tip's chalk at the contact spot.
+// The panel's bitmap follows its on-screen size (which scales with the UI) at the device's pixel density; drawing stays in a 240 x 160 space.
+const TIP_W = 240, TIP_H = 160;
+function sizeTip() {
+  const c = ui.tipCanvas, r = c.getBoundingClientRect(), dpr = Math.min(3, window.devicePixelRatio || 1);
+  if (r.width < 4 || r.height < 4) return;
+  const w = Math.round(r.width * dpr), h = Math.round(r.height * dpr);
+  if (c.width !== w || c.height !== h) { c.width = w; c.height = h; drawTipPanel(); }
+}
+new ResizeObserver(sizeTip).observe(ui.tipCanvas);
 function drawTipPanel() {
   const c = ui.tipCanvas, g = c.getContext('2d');
-  const w = c.width, h = c.height;
+  const w = TIP_W, h = TIP_H;
+  g.setTransform(c.width / TIP_W, 0, 0, c.height / TIP_H, 0, 0);
   g.clearRect(0, 0, w, h);
   const bx = w * 0.4, by = h / 2, br = Math.min(w * 0.36, h * 0.45);
   const grd = g.createRadialGradient(bx - br * 0.3, by - br * 0.4, br * 0.1, bx, by, br);
@@ -351,8 +361,8 @@ function drawTipPanel() {
   drawTipFace(g, chalk, cx, cy, cr);
   const [u, v] = tipPoint(tip.a, tip.b);
   g.strokeStyle = '#fff'; g.lineWidth = 1.5; g.beginPath(); g.arc(cx + u * cr, cy - v * cr, 3, 0, 7); g.stroke();
-  g.fillStyle = 'rgba(243,234,216,.7)'; g.font = '10px system-ui'; g.textAlign = 'center';
-  g.fillText('tip', cx, cy + cr + 12);
+  g.fillStyle = 'rgba(243,234,216,.75)'; g.font = '600 15px system-ui'; g.textAlign = 'center';
+  g.fillText('tip', cx, cy + cr + 18);
 }
 
 function drawTipFace(g, chalk, cx, cy, cr) {
@@ -483,7 +493,7 @@ ui.actBtn.onclick = () => {
 
 // ---------- shooting ----------
 function shoot(p) { // animate the cue, strike on contact (CPU, or the human releasing the classic power bar)
-  if (!(state === 'ai' || classicAim()) || p < 0.01) return;
+  if (!(state === 'ai' || powerReady()) || p < 0.01) return;
   const cb = world.ball(0);
   if (!cb.active) return;
   const natural = 0.02 + p * 0.24;
@@ -803,8 +813,8 @@ ui.fine.addEventListener('pointermove', (e) => {
   if (fineDrag === null) return;
   const dx = e.clientX - fineDrag; fineDrag = e.clientX;
   if ((state === 'aim' || state === 'stance') && humanTurn()) { aimYaw += dx * 0.00035; cam.yaw = aimYaw; }
-  fineOffset = (fineOffset + dx) % 12;
-  ui.fineTex.style.transform = `translateX(${fineOffset}px)`;
+  fineOffset += dx;
+  ui.fineTex.style.backgroundPositionX = `${fineOffset}px`;
 });
 ui.fine.addEventListener('pointerup', () => (fineDrag = null));
 ui.fine.addEventListener('pointercancel', () => (fineDrag = null));
@@ -818,7 +828,9 @@ function buzz(pattern) { if (touchSeen && navigator.vibrate) { try { navigator.v
 // Power bar: grab the handle and pull it down; every 10 % is a click you can hear and feel, full power is a hard stop.
 // The cue in the 3D view draws back with the handle; letting go fires the stroke and the bar drains with the cue.
 const classicAim = () => classic && (state === 'aim' || state === 'stance') && humanTurn();
-const KNOB_H = 36;
+// The power bar only exists once you are down on the shot: Get down (or Enter) brings it up, standing up puts it away again.
+const powerReady = () => classic && state === 'stance' && humanTurn();
+const knobH = () => ui.powerKnob.offsetHeight || 34; // the knob's height follows the UI scale, so read it from the layout
 for (let k = 0; k <= 10; k++) { const t = document.createElement('b'); t.style.setProperty('--k', k / 10); if (k % 5 === 0) t.className = 'major'; ui.powerScale.appendChild(t); }
 const ticks = [...ui.powerScale.children];
 function setPower(v) {
@@ -838,7 +850,7 @@ function renderPower(p, dragging) {
 function releasePower(cancel = false) {
   if (!powerDrag && !cancel) return;
   powerDrag = null; ui.power.classList.remove('drag');
-  if (!cancel && power > 0.015 && classicAim()) {
+  if (!cancel && power > 0.015 && powerReady()) {
     lastPower = power;
     ui.power.style.setProperty('--ln', power.toFixed(3)); ui.powerLast.classList.remove('none');
     shoot(power);
@@ -846,11 +858,11 @@ function releasePower(cancel = false) {
 }
 ui.powerLast.classList.add('none');
 ui.power.addEventListener('pointerdown', (e) => {
-  if (!classicAim() || powerDrag) return;
+  if (!powerReady() || powerDrag) return;
   sfx.init();
   ui.power.setPointerCapture(e.pointerId);
   const r = ui.power.getBoundingClientRect();
-  powerDrag = { id: e.pointerId, y0: e.clientY, p0: power, track: Math.max(60, r.height - KNOB_H) };
+  powerDrag = { id: e.pointerId, y0: e.clientY, p0: power, track: Math.max(60, r.height - knobH()) };
   ui.power.classList.add('drag'); buzz(6);
 });
 ui.power.addEventListener('pointermove', (e) => {
@@ -865,7 +877,7 @@ ui.power.addEventListener('lostpointercapture', (e) => { if (powerDrag && e.poin
 const canSetUp = () => (state === 'aim' || state === 'stance') && humanTurn() && stroke.id === null;
 const setTipFromEvent = (e) => {
   const c = ui.tipCanvas, r = c.getBoundingClientRect();
-  const br = Math.min(c.width * 0.36, c.height * 0.45) * (r.width / c.width);
+  const br = Math.min(TIP_W * 0.36, TIP_H * 0.45) * (r.width / TIP_W);
   let a = (e.clientX - r.left - r.width * 0.4) / br, b = -(e.clientY - r.top - r.height / 2) / br;
   const m = Math.hypot(a, b); if (m > MAX_TIP) { a *= MAX_TIP / m; b *= MAX_TIP / m; }
   // magnetic centre: the tip snaps home with a click as it passes over the middle of the ball
@@ -958,7 +970,7 @@ window.addEventListener('keydown', (e) => {
 });
 window.addEventListener('keyup', (e) => {
   keys.delete(e.code);
-  if (e.code === 'Space' && classicAim() && !powerDrag) { if (power > 0.015) { lastPower = power; ui.power.style.setProperty('--ln', power.toFixed(3)); ui.powerLast.classList.remove('none'); shoot(power); } else power = 0; }
+  if (e.code === 'Space' && powerReady() && !powerDrag) { if (power > 0.015) { lastPower = power; ui.power.style.setProperty('--ln', power.toFixed(3)); ui.powerLast.classList.remove('none'); shoot(power); } else power = 0; }
 });
 function handleKeys(dt) {
   if (!(state === 'aim' || state === 'stance') || !humanTurn()) return;
@@ -969,7 +981,7 @@ function handleKeys(dt) {
   if (state === 'aim' && keys.has('ArrowDown')) cam.pitch = clamp(cam.pitch - 0.8 * dt, 0.03, 1.45);
   // down on the shot: up / down raise and lower the butt (the camera rides along)
   if (state === 'stance' && (keys.has('ArrowUp') || keys.has('ArrowDown'))) nudgeElev(Math.max(elevUser, elev), (keys.has('ArrowUp') ? 1 : -1) * (fine < 1 && (keys.has('ShiftLeft') || keys.has('ShiftRight')) ? 0.05 : 0.2) * dt);
-  if (classicAim() && !powerDrag && keys.has('Space')) setPower(power + dt * 0.55); // hold Space to charge, release to shoot
+  if (powerReady() && !powerDrag && keys.has('Space')) setPower(power + dt * 0.55); // hold Space to charge, release to shoot
   cam.yaw = aimYaw;
 }
 
@@ -1315,6 +1327,8 @@ function frame(now) {
   updateCue(dt);
   updatePowerBar(dt);
   document.body.classList.toggle('racking', state === 'rack');
+  // the bar stays up through the stroke so you can watch it drain with the cue
+  document.body.classList.toggle('powerOn', classic && (state === 'stance' || state === 'shooting') && humanTurn());
   updateGuide();
   updateRackFrame(dt);
   drawStroke(dt);
@@ -1333,6 +1347,8 @@ function resize() {
   if (chalkUI) { sizeChalk(); drawChalk(); }
 }
 window.addEventListener('resize', resize);
+window.addEventListener('orientationchange', () => setTimeout(resize, 250));
+if (window.visualViewport) window.visualViewport.addEventListener('resize', resize);
 resize();
 applyGfx();
 applyControls(ctl, false);
@@ -1347,7 +1363,7 @@ requestAnimationFrame(frame);
 window.__pool = {
   fastForward: () => { if (state !== 'rolling') return; while (world.anyMoving()) { world.step(1 / 1500); processEvents(); } },
   get world() { return world; }, get game() { return game; }, get state() { return state; }, get rack() { return rack; },
-  newGame, shoot, setControls: applyControls, get controls() { return ctl; }, setPower, releasePower: () => { if (classicAim() && power > 0.015) { lastPower = power; shoot(power); } },
+  newGame, shoot, setControls: applyControls, get controls() { return ctl; }, setPower, releasePower: () => { if (powerReady() && power > 0.015) { lastPower = power; shoot(power); } },
   get power() { return power; }, get aim() { return aimYaw; }, setAim: (y) => { aimYaw = y; cam.yaw = y; },
   set render(v) { renderOn = v; }, get tip() { return { ...tip } }, get lastStroke() { return lastStroke; }, get chalk() { return myChalk().mean(); }, get cue() { return cue; }, get shot() { return shot; }, get elev() { return { elev, elevMin, bridge, allowed: bridgeInfo.allowed } },
   snapshot: () => { renderer.render(scene, camera); return canvas.toDataURL('image/png'); },

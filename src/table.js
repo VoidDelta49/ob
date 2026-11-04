@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { HL, HW, L, W, R } from './constants.js';
-import { CW, RAIL_W, CUSHION_H, cushions, pockets, boundaryOutline } from './table-geom.js';
+import { CW, RAIL_W, CUSHION_H, cushions, pockets, boundaryOutline, pocketRims } from './table-geom.js';
 
 export const BED_TOP = 0;
 const RAIL_TOP = CUSHION_H + 0.004;
@@ -8,6 +8,46 @@ const FLOOR_Y = -0.79;
 
 const toShape = (pts, ShapeCls = THREE.Shape) => new ShapeCls(pts.map(([x, z]) => new THREE.Vector2(x, -z)));
 const flat = (geo) => { geo.rotateX(-Math.PI / 2); return geo; };
+
+// Visual-only rounding of the cushion jaw tips (the first two vertices of each cushion polygon); physics keeps the sharp polygon.
+function roundVerts(poly, which, rad, seg = 5) {
+  const n = poly.length, out = [];
+  poly.forEach((v, i) => {
+    if (!which.includes(i)) { out.push(v); return; }
+    const a = poly[(i + n - 1) % n], b = poly[(i + 1) % n];
+    const da = Math.hypot(a[0] - v[0], a[1] - v[1]), db = Math.hypot(b[0] - v[0], b[1] - v[1]);
+    const t = Math.min(rad, da * 0.45, db * 0.45);
+    const p0 = [v[0] + ((a[0] - v[0]) / da) * t, v[1] + ((a[1] - v[1]) / da) * t];
+    const p1 = [v[0] + ((b[0] - v[0]) / db) * t, v[1] + ((b[1] - v[1]) / db) * t];
+    for (let k = 0; k <= seg; k++) {
+      const u = k / seg, w0 = (1 - u) * (1 - u), w1 = 2 * u * (1 - u), w2 = u * u;
+      out.push([w0 * p0[0] + w1 * v[0] + w2 * p1[0], w0 * p0[1] + w1 * v[1] + w2 * p1[1]]);
+    }
+  });
+  return out;
+}
+
+// Pocket shaft wall: a vertical strip on the circle of radius r around (cx, cz), from angle a1 sweeping `delta`, between the y levels in
+// `ys` (top to bottom). `lum` gives each level's brightness, so the shaft fades from dark leather into black as it drops away.
+function shaftGeometry(cx, cz, r, a1, delta, ys, lum, steps = 32) {
+  const pos = [], col = [], idx = [];
+  for (let j = 0; j < ys.length; j++) {
+    for (let i = 0; i <= steps; i++) {
+      const t = a1 + (delta * i) / steps;
+      pos.push(cx + Math.cos(t) * r, ys[j], cz + Math.sin(t) * r);
+      col.push(lum[j], lum[j] * 0.82, lum[j] * 0.7);
+    }
+  }
+  for (let j = 0; j < ys.length - 1; j++) for (let i = 0; i < steps; i++) {
+    const a = j * (steps + 1) + i, b = a + 1, c = a + steps + 1, d = c + 1;
+    idx.push(a, b, c, b, d, c);
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  geo.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+  geo.setIndex(idx);
+  return geo;
+}
 
 function canvasTex(w, h, draw, repeat = [1, 1], srgb = true) {
   const c = document.createElement('canvas');
@@ -75,7 +115,7 @@ export function buildTable(scene, clothColor = 0x1d6b40) {
 
   // Cushions (cloth-covered rubber), with a softened top edge
   for (const c of cushions) {
-    const geo = flat(new THREE.ExtrudeGeometry(toShape(c), {
+    const geo = flat(new THREE.ExtrudeGeometry(toShape(roundVerts(c, [0, 1], 0.008)), {
       depth: CUSHION_H - 0.004, bevelEnabled: true, bevelThickness: 0.004, bevelSize: 0.0035, bevelOffset: -0.0035, bevelSegments: 3,
     }));
     const m = new THREE.Mesh(geo, cloth);
@@ -109,30 +149,44 @@ export function buildTable(scene, clothColor = 0x1d6b40) {
   for (let k = -3; k <= 3; k++) if (k !== 0) for (const s of [-1, 1]) addDiamond((k * L) / 8, s * (HW + mid), 0);
   for (let k = -1; k <= 1; k++) for (const s of [-1, 1]) addDiamond(s * (HL + mid), (k * W) / 4, Math.PI / 2);
 
-  // Pockets: leather-lined drops with a dark net
-  const pocketMat = new THREE.MeshStandardMaterial({ color: 0x050505, roughness: 0.95, side: THREE.DoubleSide });
-  const rimMat = new THREE.MeshPhysicalMaterial({ color: 0x111111, roughness: 0.35, clearcoat: 0.6 });
-  for (const p of pockets) {
-    const cup = new THREE.Mesh(new THREE.CylinderGeometry(p.r, p.r * 0.85, 0.16, 40, 1, true), pocketMat);
-    cup.position.set(p.x, -0.08, p.z);
-    group.add(cup);
-    const bottom = new THREE.Mesh(flat(new THREE.CircleGeometry(p.r * 0.85, 32)), pocketMat);
-    bottom.position.set(p.x, -0.16, p.z);
-    group.add(bottom);
-    // leather lip on the rail top, opening toward the table
-    const ang = Math.atan2(p.facing.z, p.facing.x);
-    const span = p.corner ? Math.PI * 1.3 : Math.PI * 1.05;
-    const lip = new THREE.Mesh(new THREE.TorusGeometry(p.r + 0.004, 0.006, 10, 40, span), rimMat);
+  // Pockets: a real shaft through the rail and the apron. The wall is lined with dark leather that falls away to black, and a
+  // leather lip follows the back of each opening exactly (the same arc the wood rail is cut with).
+  const SHAFT_BOTTOM = -0.262;
+  const shaftMat = new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.DoubleSide });
+  const floorMat = new THREE.MeshBasicMaterial({ color: 0x000000 });
+  const lipMat = new THREE.MeshPhysicalMaterial({ color: 0x1b1310, roughness: 0.42, clearcoat: 0.5 });
+  const TOP = RAIL_TOP + 0.0015;
+  for (const { p, a1, delta } of pocketRims()) {
+    const r = p.r - 0.0015; // just inside the cut, so the liner sits in front of the wood and cloth edge
+    // behind the table: the rail's cut wall, from the rail top to the underside of the bed
+    group.add(new THREE.Mesh(shaftGeometry(p.x, p.z, r, a1, delta, [TOP, 0, -0.03], [0.07, 0.045, 0.02]), shaftMat));
+    // below the bed: the full round shaft, down to its black floor
+    group.add(new THREE.Mesh(shaftGeometry(p.x, p.z, r, 0, Math.PI * 2, [-0.03, -0.09, -0.17, SHAFT_BOTTOM], [0.02, 0.008, 0.002, 0]), shaftMat));
+    const floor = new THREE.Mesh(flat(new THREE.CircleGeometry(r, 32)), floorMat);
+    floor.position.set(p.x, SHAFT_BOTTOM + 0.001, p.z);
+    group.add(floor);
+    // leather lip lying on the rail top along the opening, with round ends
+    const lipR = p.r + 0.004, tube = 0.0065;
+    const lip = new THREE.Mesh(new THREE.TorusGeometry(lipR, tube, 10, 48, Math.abs(delta)), lipMat);
     lip.rotation.x = Math.PI / 2;
-    lip.rotation.z = ang - span / 2;
-    lip.position.set(p.x, RAIL_TOP + 0.001, p.z);
+    lip.rotation.z = Math.min(a1, a1 + delta);
+    lip.position.set(p.x, RAIL_TOP + 0.0005, p.z);
+    lip.castShadow = true;
     group.add(lip);
+    for (const t of [a1, a1 + delta]) {
+      const cap = new THREE.Mesh(new THREE.SphereGeometry(tube, 10, 8), lipMat);
+      cap.position.set(p.x + Math.cos(t) * lipR, RAIL_TOP + 0.0005, p.z + Math.sin(t) * lipR);
+      group.add(cap);
+    }
   }
 
-  // Body: apron, legs
+  // Body: apron (open over each pocket, so the shafts really go down), legs
   const bodyMat = wood;
-  const apron = new THREE.Mesh(new THREE.BoxGeometry(2 * X - 0.06, 0.2, 2 * Z - 0.06), bodyMat);
-  apron.position.y = -0.17;
+  const circle = (p, n = 40) => Array.from({ length: n }, (_, i) => [p.x + Math.cos((i / n) * Math.PI * 2) * p.r, p.z + Math.sin((i / n) * Math.PI * 2) * p.r]);
+  const apronShape = toShape([[-(X - 0.03), -(Z - 0.03)], [X - 0.03, -(Z - 0.03)], [X - 0.03, Z - 0.03], [-(X - 0.03), Z - 0.03]]);
+  for (const p of pockets) apronShape.holes.push(toShape(circle(p), THREE.Path));
+  const apron = new THREE.Mesh(flat(new THREE.ExtrudeGeometry(apronShape, { depth: 0.2, bevelEnabled: false })), bodyMat);
+  apron.position.y = -0.27;
   apron.castShadow = true;
   group.add(apron);
   const legGeo = new THREE.CylinderGeometry(0.075, 0.06, FLOOR_Y * -1 - 0.27, 24);

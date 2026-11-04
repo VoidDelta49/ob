@@ -39,7 +39,7 @@
   </div>
 
   <div id="toast"></div>
-  <div id="hint" class="hidden"></div>
+  <div id="msgs"><div id="report"></div><div id="hint" class="hidden"></div></div>
 
   <div id="topbar" class="hidden">
     <button id="btnView" title="Toggle top view (T)">⬒</button>
@@ -57,21 +57,22 @@
       <div id="powerKnob"><i></i></div>
       <div id="powerLabel">PULL</div>
     </div>
-    <div id="tipPanel" title="Where your tip meets the cue ball — drag to set">
-      <canvas id="tipCanvas" width="240" height="160"></canvas>
-    </div>
-    <div id="elev" title="Butt elevation — drag up/down from anywhere for fine steps, double-tap to level (Q / E, Shift = finer). Red mark = forced minimum">
-      <div id="elevFill"></div><div id="elevMin"></div><div id="elevLabel">0°</div>
-    </div>
-    <div id="cueBtns">
-      <button id="bridgeBtn" title="Bridge (B)">Closed</button>
-      <button id="chalkBtn" title="Chalk (C)">Chalk</button>
+    <div id="dock">
+      <div id="tipPanel" title="Where your tip meets the cue ball — drag to set">
+        <canvas id="tipCanvas" width="240" height="160"></canvas>
+      </div>
+      <div id="elev" title="Butt elevation — drag up/down from anywhere for fine steps, double-tap to level (Q / E, Shift = finer). Red mark = forced minimum">
+        <div id="elevFill"></div><div id="elevMin"></div><div id="elevLabel">0°</div>
+      </div>
+      <div id="cueBtns">
+        <button id="bridgeBtn" title="Bridge (B)">Closed</button>
+        <button id="chalkBtn" title="Chalk (C)">Chalk</button>
+      </div>
     </div>
     <div id="fine" title="Fine aim — drag left / right"><div id="fineTex"></div></div>
     <button id="downBtn" title="Get down on the shot (Space, or Enter with the power bar)">Get down</button>
   </div>
   <canvas id="strokeCanvas" class="hidden real-only" width="80" height="200"></canvas>
-  <div id="report"></div>
   <button id="actBtn" class="hidden">Tighten</button>
 
   <div id="chalkOv" class="overlay hidden">
@@ -84,7 +85,8 @@
   </div>
 
   <div id="menu" class="overlay">
-    <div class="card">
+    <div class="card menuCard">
+     <div class="col">
       <h1>Otep <span>Billiards</span></h1>
       <p class="sub" id="subtitle">Real-physics 8-ball</p>
       <div class="btns">
@@ -92,6 +94,8 @@
         <button data-mode="pvp">2 Players</button>
         <button data-mode="practice">Practice</button>
       </div>
+     </div>
+     <div class="col">
       <div class="opts">
         <label>CPU <select id="diff"><option value="easy">Easy</option><option value="medium" selected>Medium</option><option value="hard">Hard</option></select></label>
         <label>Controls <select id="ctlSel"><option value="classic">Classic · power bar</option><option value="realistic">Realistic · stroke the cue</option></select></label>
@@ -107,13 +111,14 @@
           <li><b>Aim:</b> drag on the table to walk around the shot. Use the strip at the bottom for fine aim. You can keep aiming once you're down on the shot.</li>
           <li><b>Tip and butt:</b> drag on the ball face to place the tip (double-tap to centre). Drag the slider up to raise the butt for a jump or massé. Rails and balls behind the cue force a minimum height.</li>
           <li><b>Bridge:</b> Closed, Open, Rail or Mechanical. You get what the position allows: near a rail you use a rail bridge, out of reach you use the mechanical bridge. Shakier bridges cost accuracy and cap your power.</li>
-          <li class="classic-only"><b>Shoot:</b> optionally tap <b>Get down</b> (Enter) to settle in. Then grab the handle on the power bar, pull it down and release. Pull it back to the top to cancel. Hold <b>Space</b> and release on a keyboard. The cue sways and your bridge and nerves still matter.</li>
+          <li class="classic-only"><b>Shoot:</b> tap <b>Get down</b> (Enter) to get down on the shot. That brings up the power bar, so you can't shoot standing up. Grab the handle, pull it down and release. Pull it back to the top to cancel, or tap <b>Stand up</b> to put the bar away. Hold <b>Space</b> and release on a keyboard. The cue sways and your bridge and nerves still matter.</li>
           <li class="real-only"><b>Shoot:</b> tap <b>Get down</b> (Space). Pull your finger down to draw the cue back, then push up through the ball. Your finger speed is the cue speed. Sideways drift steers the cue. There's no power bar.</li>
           <li><b>Nerves:</b> the cue sways more on big balls like the 8. Stay down a moment and it settles, but stay too long and your arm tires.</li>
           <li><b>Butt elevation:</b> drag the °-slider up or down from anywhere on it for fine steps (double-tap levels the cue). With the power bar, once you are down on the shot, drag up and down on the table to raise or lower the butt; the camera rides along with the cue.</li>
           <li><b>Camera:</b> drag up and down to tilt, scroll or pinch to zoom. <b>⬒</b> / <b>T</b> gives a top view to look only (you can aim from it in practice, or with the power bar).</li>
         </ul>
       </details>
+     </div>
     </div>
   </div>
 

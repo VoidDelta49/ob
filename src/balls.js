@@ -80,7 +80,7 @@ export function ballIcon(id, size = 22) {
   g.addColorStop(0, 'rgba(255,255,255,0.55)'); g.addColorStop(0.35, 'rgba(255,255,255,0)'); g.addColorStop(1, 'rgba(0,0,0,0.35)');
   ctx.fillStyle = g; ctx.fillRect(0, 0, s, s);
   ctx.restore();
-  c.style.width = c.style.height = size + 'px';
+  c.style.width = c.style.height = `calc(${size} * var(--u, 1px))`; // scales with the UI
   c.className = 'ball-icon';
   return c;
 }

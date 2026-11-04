@@ -37,7 +37,12 @@ await P(() => window.__pool.quickRack());
 check(await waitState('aim', 20000), 'rack lifted, ready to break');
 check(await P(() => !document.getElementById('chalkOv').classList.contains('hidden')), 'chalk is still required before the first shot');
 await P(() => window.__pool.chalkFull());
-check((await shown('power')) && (await shown('tipPanel')) && (await shown('elev')) && (await shown('downBtn')) && !(await shown('strokeCanvas')), 'power bar + tip panel + butt slider + Get down are all there');
+check((await shown('tipPanel')) && (await shown('elev')) && (await shown('downBtn')) && !(await shown('strokeCanvas')), 'tip panel + butt slider + Get down are all there');
+const barUp = () => P(() => getComputedStyle(document.getElementById('power')).visibility === 'visible' && +getComputedStyle(document.getElementById('power')).opacity > 0.5);
+check(!(await barUp()), 'power bar is NOT there while standing');
+await P(() => { window.__pool.setPower(0.5); window.__pool.releasePower(); });
+check((await P(() => window.__pool.state)) === 'aim', 'releasing power while standing does not fire a shot');
+await P(() => { window.__pool.setPower(0); });
 await page.waitForTimeout(1000);
 await shot('1-aim');
 
@@ -51,8 +56,10 @@ check(t.b > 0.15 && Math.abs(t.a) < 0.06, `tip placed high (a ${t.a.toFixed(2)},
 // get down, then aim while down: drag on the table, the fine strip, and the arrow keys
 await P(() => { window.__pool.render = true; });
 await page.click('#downBtn');
-check((await P(() => window.__pool.state)) === 'stance', 'Get down enters the stance with the power bar');
+check((await P(() => window.__pool.state)) === 'stance', 'Get down enters the stance');
 await page.waitForTimeout(900);
+const barOn = await page.waitForFunction(() => { const e = document.getElementById('power'), c = getComputedStyle(e); return c.visibility === 'visible' && +c.opacity > 0.9; }, null, { timeout: 20000 }).then(() => true, () => false);
+check(barOn, 'the power bar appears once down on the shot');
 await shot('2-stance');
 await P(() => { window.__pool.render = false; });
 const yaw0 = await P(() => window.__pool.aim);
@@ -69,18 +76,19 @@ check(yaw3 > yaw2, 'arrow keys nudge the aim while down');
 
 // power: pull to ~55 %, drift off the bar, cancel by returning to the top
 const pb = await page.locator('#power').boundingBox();
-const track = pb.height - 36;
-await page.mouse.move(pb.x + pb.width / 2, pb.y + 18); await page.mouse.down();
-await page.mouse.move(pb.x + pb.width / 2 + 40, pb.y + 18 + track * 0.55, { steps: 12 });
+const knob = await P(() => document.getElementById('powerKnob').offsetHeight);
+const track = pb.height - knob;
+await page.mouse.move(pb.x + pb.width / 2, pb.y + knob / 2); await page.mouse.down();
+await page.mouse.move(pb.x + pb.width / 2 + 40, pb.y + knob / 2 + track * 0.55, { steps: 12 });
 const pw = await P(() => window.__pool.power);
 check(Math.abs(pw - 0.55) < 0.06, `pulling the handle sets power while down, even off the bar (${pw.toFixed(2)})`);
-await page.mouse.move(pb.x + pb.width / 2, pb.y + 18, { steps: 10 }); await page.mouse.up();
+await page.mouse.move(pb.x + pb.width / 2, pb.y + knob / 2, { steps: 10 }); await page.mouse.up();
 check((await P(() => window.__pool.state)) === 'stance' && (await P(() => window.__pool.power)) === 0, 'handle back at the top cancels');
 
 // real shot
 await P(() => { window.__pool.render = true; });
-await page.mouse.move(pb.x + pb.width / 2, pb.y + 18); await page.mouse.down();
-await page.mouse.move(pb.x + pb.width / 2, pb.y + 18 + track * 0.7, { steps: 14 });
+await page.mouse.move(pb.x + pb.width / 2, pb.y + knob / 2); await page.mouse.down();
+await page.mouse.move(pb.x + pb.width / 2, pb.y + knob / 2 + track * 0.7, { steps: 14 });
 await page.waitForTimeout(500);
 await shot('3-pull');
 await page.mouse.up();
@@ -95,9 +103,9 @@ check(await P(() => !document.getElementById('powerLast').classList.contains('no
 
 // the setting swaps only the shot input
 await P(() => window.__pool.setControls('realistic'));
-check(!(await shown('power')) && (await shown('tipPanel')) && (await shown('downBtn')), 'Realistic: power bar gone, tip panel + Get down stay');
+check(!(await barUp()) && (await shown('tipPanel')) && (await shown('downBtn')), 'Realistic: power bar gone, tip panel + Get down stay');
 await P(() => window.__pool.setControls('classic'));
-check(await shown('power'), 'and back to Classic');
+check(!(await barUp()), 'and back to Classic (bar waits for the stance)');
 check(errors.length === 0, `no page errors ${errors.join(' | ')}`);
 await browser.close();
 process.exit(fails ? 1 : 0);

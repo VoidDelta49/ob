@@ -13,7 +13,7 @@ step and no game engine: open `index.html` from any static server.
 - **2-player hot-seat** and **practice** modes.
 - **Rendering**: PBR rendering with procedural cloth, wood and ball textures, a three-shade lamp with soft shadows, and a mechanical cue that lifts its butt to clear the rail. Sounds are synthesised in the browser.
 - **Two control schemes** (menu → *Controls*, remembered between visits):
-  - **Classic** (default): drag to aim, set english on the spin ball, then pull the power handle down and release. Every 10 % is a click you can hear and feel (haptics on phones), full power is a hard stop, the cue strains and trembles near the top, the bar drains in step with the cue stroke, and a marker keeps your last power so you can repeat a shot. The table is racked for you and the aim guide is available in every mode.
+  - **Classic** (default): drag to aim, set english on the spin ball, then tap **Get down**, which brings up the power bar (it isn't there while you stand), and pull the handle down and release. Every 10 % is a click you can hear and feel (haptics on phones), full power is a hard stop, the cue strains and trembles near the top, the bar drains in step with the cue stroke, and a marker keeps your last power so you can repeat a shot. The table is racked for you and the aim guide is available in every mode.
   - **Realistic**: there's no power bar and no aim line (the aim line is a practice-only aid). You chalk, rack, choose a bridge, place the tip on the ball, raise the butt, get down, and stroke the cue with your finger. Your finger speed sets the cue speed. The details below describe this scheme.
 - **Chalk and miscues**: the tip carries a chalk map. Tip friction μ comes from the chalk at the exact spot the ball touches. A dome tip touches off-centre for english, so dry edges miscue on spin shots. The miscue limit is ρ = μ/√(1+μ²): ≈0.55R when chalked, ≈0.21R bare. Every hit wears chalk off where the ball landed.
 - **3D ball flight**: an elevated cue drives the ball into the slate, so jump shots, massé curves and small hops on firm level-ish shots come from the physics. Airborne balls collide in 3D, fly over balls and can leave the table (foul).
@@ -26,7 +26,7 @@ step and no game engine: open `index.html` from any static server.
 |---|---|---|
 | Aim | drag on table · fine-aim strip | ← / → (Shift = fine) |
 | Spin | drag the dot on the ball (bottom-left) · double-tap to centre | W A S D, X to centre |
-| Power / shoot | grab the handle on the power bar (bottom-right), pull down, release · pull back to the top to cancel | hold Space, release |
+| Power / shoot | Get down first; then grab the handle on the power bar, pull down, release · pull back to the top to cancel | hold Space, release |
 | Camera tilt / zoom | drag up/down · wheel / pinch | ↑ / ↓ |
 | Top view / aim guide | ⬒ button (tap table to aim) · ⌖ button | T · G |
 | Ball in hand | drag the cue ball | |
@@ -54,7 +54,8 @@ npm install && npm test        # physics / rules / AI sanity tests
 npm run shot -- --ctl realistic --fixed --q low --mode practice --aim 0 --shoot 4 --at 0,120,250,500 --out shots/stroke
                                # --shoot = cue speed m/s; also --tip a,b --elev rad --stance
 node tools/flow.mjs            # end-to-end (Realistic): rack, chalk, stroke with real pointer gestures (after npm run build)
-node tools/flow-classic.mjs    # end-to-end (Classic): spin ball, power handle detents / cancel / release
+node tools/flow-classic.mjs    # end-to-end (Classic): spin ball, power bar only when down, handle detents / cancel / release
+node tools/layout.mjs          # layout at 13 screen sizes: everything on screen, nothing overlapping, power bar only when down
                                # headless render to PNGs (needs Playwright; see tools/screenshot.mjs)
 npm run build                  # single-file offline build -> dist/index.html
 ```
@@ -73,6 +74,7 @@ src/cue.js         cue stick
 tools/screenshot.mjs  headless Playwright renderer (fake clock for animation frames)
 tools/flow.mjs     headless gesture walkthrough of rack → chalk → stroke (Realistic)
 tools/flow-classic.mjs  headless gesture walkthrough of the Classic spin ball + power bar
+tools/layout.mjs        headless check that the UI scales: fits and doesn't overlap at phone, tablet and desktop sizes
 src/audio.js       synthesised SFX
 sw.js              cache blocker: service worker that revalidates every game file on each load (offline fallback)
 src/main.js        game loop, camera, input, HUD
