@@ -82,6 +82,7 @@ body.racking #power { visibility: hidden; }
 #tipCanvas { width: 100%; height: 100%; display: block; touch-action: none; }
 #elev { position: fixed; left: 168px; bottom: calc(10px + var(--safe-b)); width: 34px; height: 100px; border-radius: 10px; touch-action: none;
   background: linear-gradient(#1a130d, #0e0a07); border: 1px solid var(--line); overflow: hidden; }
+#elev.drag { border-color: var(--gold); cursor: grabbing; }
 #elevFill { position: absolute; left: 0; right: 0; bottom: 0; background: linear-gradient(0deg, #6b4a2f, #d6a74a); opacity: .8; }
 #elevMin { position: absolute; left: 0; right: 0; height: 2px; background: #c8423a; box-shadow: 0 0 6px #c8423a; }
 #elevLabel { position: absolute; inset: 4px 0 auto; text-align: center; font-size: 11px; font-weight: 650; color: var(--ink); text-shadow: 0 1px 2px #000; }

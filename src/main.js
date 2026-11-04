@@ -225,7 +225,7 @@ function autoAim() {
 
 function showHint() {
   if (state === 'rack') return;
-  if (state === 'stance') return hint(turnsPlayed < 3 ? (classic ? 'Drag or use the strip to aim · pull the power handle down & release' : 'Pull down to draw the cue back, push up through the ball — keep it straight') : '');
+  if (state === 'stance') return hint(turnsPlayed < 3 ? (classic ? 'Drag sideways to aim, up/down to raise the butt · pull the power handle down & release' : 'Pull down to draw the cue back, push up through the ball — keep it straight') : '');
   if (state !== 'aim') return hint('');
   if (ballInHand) hint(kitchen ? 'Ball in hand (behind the head string) — drag the cue ball' : 'Ball in hand — drag the cue ball to place it');
   else if (turnsPlayed < 3) hint(classic ? 'Drag to aim · set tip & butt height · Get down to settle in · pull the power handle to shoot' : 'Drag to aim · set tip & butt height · Get down to shoot');
@@ -312,7 +312,7 @@ function updateCueUI() {
   const max = 1.35;
   ui.elevFill.style.height = `${(elev / max) * 100}%`;
   ui.elevMin.style.bottom = `${(elevMin / max) * 100}%`;
-  ui.elevLabel.textContent = `${Math.round((elev * 180) / Math.PI)}°`;
+  { const deg = (elev * 180) / Math.PI; ui.elevLabel.textContent = deg < 20 ? `${deg.toFixed(1)}°` : `${Math.round(deg)}°`; }
   ui.elev.classList.toggle('forced', elevMin > elevUser + 0.003);
   ui.bridgeBtn.textContent = BRIDGES[bridge].name;
   ui.bridgeBtn.classList.toggle('locked', bridgeInfo.allowed.length < 2);
@@ -727,6 +727,10 @@ canvas.addEventListener('pointermove', (e) => {
     const fine = e.shiftKey ? 0.15 : 1;
     // classic stance: dragging the table still aims (finer, since the camera is close); the camera height stays put
     const aiming = humanTurn() && (state === 'aim' || (classic && state === 'stance'));
+    const down = classic && state === 'stance' && humanTurn() && !topView;
+    if (down && !drag.axis) { drag.ax = (drag.ax || 0) + Math.abs(dx); drag.ay = (drag.ay || 0) + Math.abs(dy); if (drag.ax + drag.ay > 8) drag.axis = drag.ay > drag.ax * 1.2 ? 'y' : 'x'; }
+    if (down && drag.axis === 'y') { nudgeElev(Math.max(elevUser, elev), -dy * ELEV_PX * 0.55 * fine); return; } // down on the shot: drag up/down = butt height
+    if (down && drag.axis !== 'x') return;
     if (aiming && !topView) { aimYaw += dx * 0.0042 * fine * (state === 'stance' ? 0.4 : 1); cam.yaw = aimYaw; }
     else if (!topView && state !== 'stance') cam.yaw += dx * 0.005;
     if (!topView && state !== 'stance') cam.pitch = clamp(cam.pitch - dy * 0.004, 0.03, 1.45);
@@ -886,16 +890,33 @@ ui.tipCanvas.addEventListener('pointermove', (e) => { if (ui.tipCanvas.dataset.d
 ui.tipCanvas.addEventListener('pointerup', () => (ui.tipCanvas.dataset.d = ''));
 ui.tipCanvas.addEventListener('pointercancel', () => (ui.tipCanvas.dataset.d = ''));
 
-// butt elevation
-const setElevFromEvent = (e) => {
-  const r = ui.elev.getBoundingClientRect();
-  elevUser = clamp((r.bottom - e.clientY) / r.height, 0, 1) * 1.35;
+// butt elevation: a relative, fine slider. Grab anywhere and drag; the full 0-77 deg range takes ~400 px (Shift = finer).
+// Starts from what the cue actually sits at, so dragging up from a forced minimum raises it right away. Double-tap levels it.
+const ELEV_MAX = 1.35, ELEV_PX = ELEV_MAX / 400;
+let elevDrag = null, elevTap = 0;
+function nudgeElev(base, d) {
+  const was = Math.round((elev * 180) / Math.PI);
+  elevUser = clamp(base + d, 0, ELEV_MAX);
   refreshCueSetup();
-};
-ui.elev.addEventListener('pointerdown', (e) => { if (!canSetUp()) return; ui.elev.setPointerCapture(e.pointerId); ui.elev.dataset.d = '1'; setElevFromEvent(e); });
-ui.elev.addEventListener('pointermove', (e) => { if (ui.elev.dataset.d === '1') setElevFromEvent(e); });
-ui.elev.addEventListener('pointerup', () => (ui.elev.dataset.d = ''));
-ui.elev.addEventListener('pointercancel', () => (ui.elev.dataset.d = ''));
+  if (Math.round((elev * 180) / Math.PI) !== was) { sfx.tick(elev / ELEV_MAX); buzz(3); }
+}
+ui.elev.addEventListener('pointerdown', (e) => {
+  if (!canSetUp()) return;
+  sfx.init();
+  const now = performance.now();
+  if (now - elevTap < 320) { elevTap = 0; elevDrag = null; elevUser = 0; refreshCueSetup(); sfx.snap(); buzz(8); return; }
+  elevTap = now;
+  ui.elev.setPointerCapture(e.pointerId);
+  elevDrag = { id: e.pointerId, y0: e.clientY, base: elev };
+  ui.elev.classList.add('drag');
+});
+ui.elev.addEventListener('pointermove', (e) => {
+  if (!elevDrag || e.pointerId !== elevDrag.id) return;
+  nudgeElev(elevDrag.base, (elevDrag.y0 - e.clientY) * ELEV_PX * (e.shiftKey ? 0.25 : 1));
+});
+const endElev = (e) => { if (elevDrag && e.pointerId === elevDrag.id) { elevDrag = null; ui.elev.classList.remove('drag'); } };
+ui.elev.addEventListener('pointerup', endElev);
+ui.elev.addEventListener('pointercancel', endElev);
 
 function cycleBridge() {
   if (!canSetUp()) return;
@@ -928,8 +949,8 @@ window.addEventListener('keydown', (e) => {
     if (e.code === 'KeyD') tip.a += st;
     if (e.code === 'KeyX') tip.a = tip.b = 0;
     const m = Math.hypot(tip.a, tip.b); if (m > mx) { tip.a *= mx / m; tip.b *= mx / m; }
-    if (e.code === 'KeyQ') elevUser = clamp(Math.max(elevUser, elev) + 0.035, 0, 1.35);
-    if (e.code === 'KeyE') elevUser = clamp(Math.min(elevUser, elev) - 0.035, 0, 1.35);
+    if (e.code === 'KeyQ') elevUser = clamp(Math.max(elevUser, elev) + (e.shiftKey ? 0.009 : 0.035), 0, 1.35);
+    if (e.code === 'KeyE') elevUser = clamp(Math.min(elevUser, elev) - (e.shiftKey ? 0.009 : 0.035), 0, 1.35);
     if (e.code === 'KeyB') cycleBridge();
     if (e.code === 'KeyC') ui.chalkBtn.onclick();
     refreshCueSetup();
@@ -946,6 +967,8 @@ function handleKeys(dt) {
   if (keys.has('ArrowRight')) aimYaw += 0.9 * fine * dt;
   if (state === 'aim' && keys.has('ArrowUp')) cam.pitch = clamp(cam.pitch + 0.8 * dt, 0.03, 1.45);
   if (state === 'aim' && keys.has('ArrowDown')) cam.pitch = clamp(cam.pitch - 0.8 * dt, 0.03, 1.45);
+  // down on the shot: up / down raise and lower the butt (the camera rides along)
+  if (state === 'stance' && (keys.has('ArrowUp') || keys.has('ArrowDown'))) nudgeElev(Math.max(elevUser, elev), (keys.has('ArrowUp') ? 1 : -1) * (fine < 1 && (keys.has('ShiftLeft') || keys.has('ShiftRight')) ? 0.05 : 0.2) * dt);
   if (classicAim() && !powerDrag && keys.has('Space')) setPower(power + dt * 0.55); // hold Space to charge, release to shoot
   cam.yaw = aimYaw;
 }

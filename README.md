@@ -38,7 +38,7 @@ step and no game engine: open `index.html` from any static server.
 | Chalk | brush over the tip (required before your first shot) · Chalk button | C |
 | Aim (standing) | drag on table · fine-aim strip | ← / → (Shift = fine) |
 | Tip on ball | drag on the ball-face panel | W A S D, X to centre |
-| Butt elevation | drag the slider (red mark = forced minimum) | Q / E |
+| Butt elevation | drag the slider up/down (relative, fine; double-tap levels; red mark = forced minimum) · Classic, down on the shot: drag up/down on the table | Q / E (Shift = finer) · ↑ / ↓ while down |
 | Bridge | Bridge button (cycles what the position allows) | B |
 | Get down / stand up | Get down button | Space |
 | Stroke | down on the shot: pull finger down = backswing, push up through the ball | |
@@ -74,5 +74,6 @@ tools/screenshot.mjs  headless Playwright renderer (fake clock for animation fra
 tools/flow.mjs     headless gesture walkthrough of rack → chalk → stroke (Realistic)
 tools/flow-classic.mjs  headless gesture walkthrough of the Classic spin ball + power bar
 src/audio.js       synthesised SFX
+sw.js              cache blocker: service worker that revalidates every game file on each load (offline fallback)
 src/main.js        game loop, camera, input, HUD
 ```
