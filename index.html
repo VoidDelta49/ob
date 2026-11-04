@@ -37,10 +37,6 @@
   </div>
 
   <div id="controls" class="hidden">
-    <div id="spin" class="classic-only" title="Cue tip position — drag to set english / draw / follow · double-tap to centre">
-      <div id="spinRing"></div>
-      <div id="spinDot"></div>
-    </div>
     <div id="power" class="classic-only" title="Pull the handle down to set power, release to shoot">
       <div id="powerScale"></div>
       <div id="powerFill"></div>
@@ -48,18 +44,18 @@
       <div id="powerKnob"><i></i></div>
       <div id="powerLabel">PULL</div>
     </div>
-    <div id="tipPanel" class="real-only" title="Where your tip meets the cue ball — drag to set">
+    <div id="tipPanel" title="Where your tip meets the cue ball — drag to set">
       <canvas id="tipCanvas" width="240" height="160"></canvas>
     </div>
-    <div id="elev" class="real-only" title="Butt elevation — drag up to jack up the cue (forced minimum marked)">
+    <div id="elev" title="Butt elevation — drag up to jack up the cue (forced minimum marked)">
       <div id="elevFill"></div><div id="elevMin"></div><div id="elevLabel">0°</div>
     </div>
-    <div id="cueBtns" class="real-only">
+    <div id="cueBtns">
       <button id="bridgeBtn" title="Bridge (B)">Closed</button>
       <button id="chalkBtn" title="Chalk (C)">Chalk</button>
     </div>
     <div id="fine" title="Fine aim — drag left / right"><div id="fineTex"></div></div>
-    <button id="downBtn" class="real-only" title="Get down on the shot (Space)">Get down</button>
+    <button id="downBtn" title="Get down on the shot (Space, or Enter with the power bar)">Get down</button>
   </div>
   <canvas id="strokeCanvas" class="hidden real-only" width="80" height="200"></canvas>
   <div id="report"></div>
@@ -92,23 +88,16 @@
       <button id="resume" class="hidden ghost">Resume</button>
       <details class="help">
         <summary>How to play</summary>
-        <ul class="classic-only">
-          <li><b>Aim:</b> drag on the table to walk around the shot (←/→ keys, Shift for fine). Use the strip at the bottom for fine aim.</li>
-          <li><b>Spin:</b> drag the dot on the ball (bottom-left) to hit high, low, left or right. Double-tap to centre it.</li>
-          <li><b>Shoot:</b> grab the handle on the power bar (bottom-right), pull it down and release. Pull it back to the top to cancel. On a keyboard, hold <b>Space</b> and release.</li>
-          <li><b>Ball in hand:</b> drag the cue ball to place it.</li>
-          <li><b>Camera:</b> drag up and down to tilt, scroll or pinch to zoom. <b>⬒</b> / <b>T</b> gives a top view where you can tap to aim. <b>⌖</b> / <b>G</b> toggles the aim guide.</li>
-          <li><b>Want more realism?</b> Switch <b>Controls</b> to Realistic for racking, chalk, bridges and a physical stroke.</li>
-        </ul>
-        <ul class="real-only">
+        <ul>
           <li><b>Rack:</b> the player who isn't breaking racks. Drag the rack onto the spot, Tighten, then swipe up to lift it straight off. A crooked lift loosens the rack.</li>
           <li><b>Chalk:</b> you must chalk before your first shot. Brush the chalk over the tip. Chalk wears off where the ball touches it, and a dry spot miscues.</li>
-          <li><b>Aim:</b> drag on the table to walk around the shot. Use the strip at the bottom for fine aim.</li>
-          <li><b>Tip and butt:</b> drag on the ball face to place the tip. Drag the slider up to raise the butt for a jump or massé. Rails and balls behind the cue force a minimum height.</li>
-          <li><b>Bridge:</b> Closed, Open, Rail or Mechanical. You get what the position allows: near a rail you use a rail bridge, out of reach you use the mechanical bridge. Shakier bridges cost accuracy.</li>
-          <li><b>Shoot:</b> tap <b>Get down</b> (Space). Pull your finger down to draw the cue back, then push up through the ball. Your finger speed is the cue speed. Sideways drift steers the cue. There's no power bar.</li>
+          <li><b>Aim:</b> drag on the table to walk around the shot. Use the strip at the bottom for fine aim. You can keep aiming once you're down on the shot.</li>
+          <li><b>Tip and butt:</b> drag on the ball face to place the tip (double-tap to centre). Drag the slider up to raise the butt for a jump or massé. Rails and balls behind the cue force a minimum height.</li>
+          <li><b>Bridge:</b> Closed, Open, Rail or Mechanical. You get what the position allows: near a rail you use a rail bridge, out of reach you use the mechanical bridge. Shakier bridges cost accuracy and cap your power.</li>
+          <li class="classic-only"><b>Shoot:</b> optionally tap <b>Get down</b> (Enter) to settle in. Then grab the handle on the power bar, pull it down and release. Pull it back to the top to cancel. Hold <b>Space</b> and release on a keyboard. The cue sways and your bridge and nerves still matter.</li>
+          <li class="real-only"><b>Shoot:</b> tap <b>Get down</b> (Space). Pull your finger down to draw the cue back, then push up through the ball. Your finger speed is the cue speed. Sideways drift steers the cue. There's no power bar.</li>
           <li><b>Nerves:</b> the cue sways more on big balls like the 8. Stay down a moment and it settles, but stay too long and your arm tires.</li>
-          <li><b>Camera:</b> drag up and down to tilt, scroll or pinch to zoom. <b>⬒</b> / <b>T</b> gives a top view to look only (you can aim from it in practice).</li>
+          <li><b>Camera:</b> drag up and down to tilt, scroll or pinch to zoom. <b>⬒</b> / <b>T</b> gives a top view to look only (you can aim from it in practice, or with the power bar).</li>
         </ul>
       </details>
     </div>

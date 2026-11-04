@@ -12,7 +12,7 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: #0b0907; col
   font: 14px/1.35 ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; user-select: none; -webkit-user-select: none; }
 canvas#c { position: fixed; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; }
 .hidden { display: none !important; }
-/* control scheme: body.classic = power bar + spin ball, otherwise realistic stroke controls */
+/* control scheme: body.classic = pull-down power bar, otherwise the live finger stroke (everything else is shared) */
 body.classic .real-only, body:not(.classic) .classic-only { display: none !important; }
 button { font: inherit; color: inherit; cursor: pointer; }
 
@@ -44,19 +44,10 @@ button { font: inherit; color: inherit; cursor: pointer; }
 
 /* Controls */
 #controls { position: fixed; inset: auto 0 0 0; height: 0; }
-/* Classic controls: spin ball (bottom-left), fine-aim strip, tactile power bar (bottom-right) */
-#spin { position: fixed; left: 14px; bottom: calc(14px + var(--safe-b)); width: 86px; height: 86px; border-radius: 50%; touch-action: none; cursor: crosshair;
-  background: radial-gradient(circle at 36% 30%, #fffdf6 0 8%, #f1ece0 30%, #cfc7b5 72%, #8f8676 100%);
-  box-shadow: 0 6px 20px rgba(0,0,0,.55), inset 0 0 0 1px rgba(0,0,0,.25); transition: box-shadow .15s, transform .15s; }
-#spin.drag { transform: scale(1.06); box-shadow: 0 8px 26px rgba(0,0,0,.6), 0 0 0 2px rgba(214,167,74,.7), inset 0 0 0 1px rgba(0,0,0,.25); }
-#spin::before, #spin::after { content: ""; position: absolute; background: rgba(0,0,0,.14); }
-#spin::before { left: 50%; top: 12%; bottom: 12%; width: 1px; }
-#spin::after { top: 50%; left: 12%; right: 12%; height: 1px; }
-#spinRing { position: absolute; inset: 7.5%; border-radius: 50%; border: 1px dashed rgba(0,0,0,.28); pointer-events: none; }
-#spinDot { position: absolute; width: 16px; height: 16px; border-radius: 50%; background: #c0262b; border: 2px solid #fff;
-  left: 50%; top: 50%; transform: translate(-50%, -50%); box-shadow: 0 1px 4px rgba(0,0,0,.5); z-index: 1; pointer-events: none; }
-#spinDot.snap { transition: left .12s ease-out, top .12s ease-out; }
-body.classic #fine { left: 50%; bottom: calc(18px + var(--safe-b)); width: min(340px, calc(100% - 260px)); }
+/* Power bar (Classic controls): tactile handle on the right; the tip panel, butt slider and Get down button are shared */
+body.classic #downBtn { right: 90px; width: 80px; }
+body.classic #fine { left: calc(282px + (100% - 468px) / 2); width: min(300px, calc(100% - 480px)); }
+body.racking #power { visibility: hidden; }
 
 #power { --pn: 0; --ln: 0; position: fixed; right: 14px; bottom: calc(14px + var(--safe-b)); width: 62px; height: min(48vh, 310px); border-radius: 18px; touch-action: none; cursor: grab;
   background: linear-gradient(#1c140d, #0d0906); border: 1px solid var(--line); overflow: hidden;
@@ -152,10 +143,9 @@ select { background: #1a130d; color: var(--ink); border: 1px solid var(--line); 
   #hud { width: calc(100% - 64px); left: 8px; transform: none; }
   #turn { display: none; }
   .player { padding: 5px 8px; }
-  body.classic #spin { width: 72px; height: 72px; }
   body.classic #power { width: 54px; }
-  body.classic #fine { width: calc(100% - 210px); bottom: calc(18px + var(--safe-b)); height: 44px; }
-  body.classic #hint { bottom: calc(110px + var(--safe-b)); }
+  body.classic #downBtn { right: 74px; width: 66px; height: 84px; }
+  body.classic #fine { left: 50%; width: calc(100% - 40px); }
   #tipPanel { width: 120px; height: 84px; }
   #elev { left: 136px; height: 84px; width: 30px; }
   #cueBtns { left: 172px; }

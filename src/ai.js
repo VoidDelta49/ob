@@ -61,17 +61,13 @@ export function potCandidates(world, cx, cz, targets) {
   return out;
 }
 
-// Classic controls play with a level cue (no forced butt elevation); the planner must simulate the same thing.
-let flatCue = false;
-export function setFlatCue(v) { flatCue = !!v; }
-
 function simulate(world, shot) {
   const w = world.clone();
   const cb = w.ball(0);
   cb.x = shot.cx ?? cb.x; cb.z = shot.cz ?? cb.z;
   if (shot.cx !== undefined) { cb.active = true; cb.pocketed = false; }
   // the CPU plays with the cue as low as the rail / balls allow, same as a human (see cuephys.minElevation)
-  w.strike(Math.cos(shot.yaw), Math.sin(shot.yaw), shot.V, shot.a || 0, shot.b || 0, flatCue ? 0 : minElevation(w, shot.yaw, shot.a || 0, shot.b || 0));
+  w.strike(Math.cos(shot.yaw), Math.sin(shot.yaw), shot.V, shot.a || 0, shot.b || 0, minElevation(w, shot.yaw, shot.a || 0, shot.b || 0));
   const log = newLog();
   let t = 0;
   const sub = 1 / 700;
