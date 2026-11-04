@@ -16,7 +16,9 @@ export const PHYS = {
   muRoll: 0.01,      // rolling resistance
   muSpin: 0.011,     // vertical-axis spin decay
   eBall: 0.95,       // ball–ball restitution
-  muBall: 0.05,      // ball–ball friction (throw)
+  // ball–ball friction falls with contact slip speed v (Alciatore's fit to measured throw): μ = a + b·e^(−c·v).
+  // Slow cuts throw more than fast ones, as on a real table.
+  muBall: [0.00995, 0.108, 1.088],
   eCushion: 0.86,    // cushion restitution at low speed (drops with speed)
   muCushion: 0.14,   // cushion friction
   cushionNose: 0.0363, // cushion nose height above bed (≈ 63.5% of ball diameter)

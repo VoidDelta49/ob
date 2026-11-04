@@ -22,6 +22,7 @@ export class Ball {
     this.pocketed = false;
     this.fall = null;
     this.offTable = false;
+    this.awake = false;
   }
   airborne() { return this.y > 0 || this.vy !== 0; }
   moving() {
@@ -95,7 +96,8 @@ export class World {
       else this.friction(b, dt);
     }
     for (const b of balls) {
-      if (!b.active) continue;
+      b.awake = b.active && b.moving(); // evaluated once per step; a resting ball is woken by the impulse that hits it
+      if (!b.awake) continue;
       b.x += b.vx * dt; b.z += b.vz * dt;
       if (b.vy !== 0) {
         b.y += b.vy * dt;
@@ -103,15 +105,16 @@ export class World {
       }
     }
 
+    // two resting balls can't collide: skip those pairs (most of them, once the break has spread)
     for (let i = 0; i < balls.length; i++) {
       const a = balls[i];
       if (!a.active) continue;
       for (let j = i + 1; j < balls.length; j++) {
         const b = balls[j];
-        if (b.active) this.collideBalls(a, b);
+        if (b.active && (a.awake || b.awake)) this.collideBalls(a, b, dt);
       }
     }
-    for (const b of balls) if (b.active) { this.collideCushions(b); this.checkPocket(b); }
+    for (const b of balls) if (b.awake) { this.collideCushions(b, dt); this.checkPocket(b); }
 
     if (this.trackRotation) {
       for (const b of balls) if (b.active && b.moving()) integrateRotation(b, dt);
@@ -132,7 +135,7 @@ export class World {
     // velocity of the contact point with the cloth: u = v + w × (0,-R,0)
     const ux = b.vx + R * b.wz;
     const uz = b.vz - R * b.wx;
-    const u = Math.hypot(ux, uz);
+    const u = Math.sqrt(ux * ux + uz * uz);
     if (u > 1e-4) {
       // sliding: kinetic friction opposes u; |u| decays at 7/2 μ g
       const dec = PHYS.muSlide * G * dt;
@@ -145,7 +148,7 @@ export class World {
       b.wz -= wd * ex;
     } else {
       // rolling: small rolling resistance, spin locked to velocity
-      const sp = Math.hypot(b.vx, b.vz);
+      const sp = Math.sqrt(b.vx * b.vx + b.vz * b.vz);
       if (sp < PHYS.stopSpeed) { b.vx = b.vz = 0; }
       else {
         const ns = Math.max(0, sp - PHYS.muRoll * G * dt);
@@ -161,23 +164,48 @@ export class World {
     }
   }
 
-  collideBalls(a, b) {
-    const dx = b.x - a.x, dz = b.z - a.z;
+  // Continuous detection: an approaching pair found overlapping is rewound to the instant of first contact, so the
+  // contact normal (and thus the cut angle) is exact instead of depending on how deep the step overshot.
+  collideBalls(a, b, dt) {
+    let dx = b.x - a.x, dz = b.z - a.z;
     if (dx > D || dx < -D || dz > D || dz < -D) return;
-    const dy = b.y - a.y;
+    let dy = b.y - a.y;
     if (dy > D || dy < -D) return;
-    const d2 = dx * dx + dy * dy + dz * dz;
+    let d2 = dx * dx + dy * dy + dz * dz;
     if (d2 >= D2 || d2 === 0) return;
+    const rvx = b.vx - a.vx, rvy = b.vy - a.vy, rvz = b.vz - a.vz;
+    const pv = dx * rvx + dy * rvy + dz * rvz;
+    let s = 0;
+    if (pv < 0) {
+      const vv = rvx * rvx + rvy * rvy + rvz * rvz;
+      s = (pv + Math.sqrt(pv * pv - vv * (d2 - D2))) / vv; // root of |p − v s|² = D²
+      if (s > dt) s = 0; // already overlapping before this step: plain separation
+      else {
+        a.x -= a.vx * s; a.y -= a.vy * s; a.z -= a.vz * s;
+        b.x -= b.vx * s; b.y -= b.vy * s; b.z -= b.vz * s;
+        dx = b.x - a.x; dy = b.y - a.y; dz = b.z - a.z;
+        d2 = dx * dx + dy * dy + dz * dz;
+      }
+    }
     const d = Math.sqrt(d2);
     const nx = dx / d, ny = dy / d, nz = dz / d;
-    const pen = (D - d) / 2;
-    a.x -= nx * pen; a.z -= nz * pen;
-    b.x += nx * pen; b.z += nz * pen;
-    if (ny !== 0) { a.y = Math.max(0, a.y - ny * pen); b.y = Math.max(0, b.y + ny * pen); }
+    if (!s) {
+      const pen = (D - d) / 2;
+      a.x -= nx * pen; a.z -= nz * pen;
+      b.x += nx * pen; b.z += nz * pen;
+      if (ny !== 0) { a.y = Math.max(0, a.y - ny * pen); b.y = Math.max(0, b.y + ny * pen); }
+    }
 
     const vn = (a.vx - b.vx) * nx + (a.vy - b.vy) * ny + (a.vz - b.vz) * nz;
-    if (vn <= 0) return;
+    if (vn > 0) this.ballImpulse(a, b, nx, ny, nz, vn);
+    if (s) { // replay the rest of the step with the new velocities
+      a.x += a.vx * s; a.y = Math.max(0, a.y + a.vy * s); a.z += a.vz * s;
+      b.x += b.vx * s; b.y = Math.max(0, b.y + b.vy * s); b.z += b.vz * s;
+    }
+  }
 
+  ballImpulse(a, b, nx, ny, nz, vn) {
+    a.awake = b.awake = true;
     // contact-point velocities: uA = vA + wA × (R n), uB = vB + wB × (−R n)
     const relx = a.vx - b.vx + R * ((a.wy + b.wy) * nz - (a.wz + b.wz) * ny);
     const rely = a.vy - b.vy + R * ((a.wz + b.wz) * nx - (a.wx + b.wx) * nz);
@@ -191,7 +219,8 @@ export class World {
     const tx = relx - vn * nx, ty = rely - vn * ny, tz = relz - vn * nz;
     const tm = Math.sqrt(tx * tx + ty * ty + tz * tz);
     if (tm > 1e-6) {
-      const Jt = Math.min(PHYS.muBall * Jn, (tm * M) / 7);
+      const [ma, mb, mc] = PHYS.muBall;
+      const Jt = Math.min((ma + mb * Math.exp(-mc * tm)) * Jn, (tm * M) / 7);
       const ux = tx / tm, uy = ty / tm, uz = tz / tm;
       a.vx -= (Jt * ux) / M; a.vy -= (Jt * uy) / M; a.vz -= (Jt * uz) / M;
       b.vx += (Jt * ux) / M; b.vy += (Jt * uy) / M; b.vz += (Jt * uz) / M;
@@ -204,7 +233,7 @@ export class World {
     if (this.recordEvents) this.events.push({ type: 'ball', a: a.id, b: b.id, speed: vn });
   }
 
-  collideCushions(b) {
+  collideCushions(b, dt) {
     // cheap reject: far from every rail
     if (Math.abs(b.x) < HL - R - 0.002 && Math.abs(b.z) < HW - R - 0.002) return;
     if (b.y > 0.002) { this.collideCushionsAir(b); return; }
@@ -218,10 +247,13 @@ export class World {
       if (d2 >= R * R || d2 === 0) continue;
       const d = Math.sqrt(d2);
       const nx = dx / d, nz = dz / d;
-      b.x = cx + nx * R; b.z = cz + nz * R;
       const vn = b.vx * nx + b.vz * nz;
-      if (vn >= 0) continue;
+      if (vn >= 0) { b.x = cx + nx * R; b.z = cz + nz * R; continue; }
+      // rewind to the moment of contact, bounce, then replay the rest of the step: true reflection, no lost travel
+      const s = Math.min(dt, (R - d) / -vn);
+      b.x -= b.vx * s; b.z -= b.vz * s;
       this.cushionImpulse(b, nx, nz, vn);
+      b.x += b.vx * s; b.z += b.vz * s;
     }
   }
 

@@ -1,13 +1,11 @@
 import * as THREE from 'three';
 import { R, BALL_COLORS } from './constants.js';
 
-const geo = new THREE.SphereGeometry(R, 48, 32);
+// One 4x4 atlas holds all 16 ball skins (1024x512 cells), so every ball draws in a single instanced call.
+// Each skin sits inside a 16 px gutter of itself (wrapped across u, edge rows stretched across v) so mipmaps never bleed.
+const CW = 1024, CH = 512, GUT = 16, IW = CW - 2 * GUT, IH = CH - 2 * GUT;
 
-function ballTexture(id) {
-  const w = 1024, h = 512;
-  const c = document.createElement('canvas');
-  c.width = w; c.height = h;
-  const ctx = c.getContext('2d');
+function drawSkin(ctx, id, w, h) {
   const color = BALL_COLORS[id];
   const ivory = '#f4f1e6';
   if (id === 0) {
@@ -34,27 +32,60 @@ function ballTexture(id) {
       if (id === 6 || id === 9) ctx.fillRect(cx - 12, cy + 30, 24, 4);
     }
   }
+}
+
+function ballAtlas() {
+  const atlas = document.createElement('canvas');
+  atlas.width = CW * 4; atlas.height = CH * 4;
+  const actx = atlas.getContext('2d');
+  const skin = document.createElement('canvas');
+  skin.width = IW; skin.height = IH;
+  const sctx = skin.getContext('2d');
+  for (let id = 0; id < 16; id++) {
+    sctx.clearRect(0, 0, IW, IH);
+    drawSkin(sctx, id, IW, IH);
+    const x = (id % 4) * CW + GUT, y = (id >> 2) * CH + GUT;
+    actx.save();
+    actx.beginPath(); actx.rect(x - GUT, y - GUT, CW, CH); actx.clip();
+    for (const ox of [-IW, 0, IW]) actx.drawImage(skin, x + ox, y); // u wraps into the side gutters
+    actx.restore();
+    // pole rows stretched into the v gutters (full cell width, gutters included)
+    actx.drawImage(atlas, x - GUT, y, CW, 1, x - GUT, y - GUT, CW, GUT);
+    actx.drawImage(atlas, x - GUT, y + IH - 1, CW, 1, x - GUT, y + IH, CW, GUT);
+  }
   // very subtle wear
-  const img = ctx.getImageData(0, 0, w, h);
+  const img = actx.getImageData(0, 0, atlas.width, atlas.height);
   for (let i = 0; i < img.data.length; i += 4) {
     const n = (Math.random() - 0.5) * 6;
     img.data[i] += n; img.data[i + 1] += n; img.data[i + 2] += n;
   }
-  ctx.putImageData(img, 0, 0);
-  const t = new THREE.CanvasTexture(c);
+  actx.putImageData(img, 0, 0);
+  const t = new THREE.CanvasTexture(atlas);
   t.colorSpace = THREE.SRGBColorSpace;
   t.anisotropy = 8;
   return t;
 }
 
-export function createBallMesh(id) {
+// All 16 balls as one InstancedMesh (instance index = ball number): 1 draw call, plus 1 per shadow-casting light.
+export function createBallSet() {
   const mat = new THREE.MeshPhysicalMaterial({
-    map: ballTexture(id), roughness: 0.16, metalness: 0, clearcoat: 1, clearcoatRoughness: 0.03, envMapIntensity: 1.0,
+    map: ballAtlas(), roughness: 0.16, metalness: 0, clearcoat: 1, clearcoatRoughness: 0.03, envMapIntensity: 1.0,
   });
-  const m = new THREE.Mesh(geo, mat);
-  m.castShadow = true;
-  m.receiveShadow = true;
-  return m;
+  mat.onBeforeCompile = (sh) => {
+    sh.vertexShader = sh.vertexShader
+      .replace('#include <common>', '#include <common>\nattribute float aCell;')
+      .replace('#include <uv_vertex>', `#include <uv_vertex>
+        vMapUv = (vec2(mod(aCell, 4.0), floor(aCell / 4.0)) * vec2(${CW}.0, ${CH}.0) + vec2(${GUT}.0) + vMapUv * vec2(${IW}.0, ${IH}.0))
+          / vec2(${CW * 4}.0, ${CH * 4}.0);`);
+  };
+  const geo = new THREE.SphereGeometry(R, 48, 32);
+  // canvas row 0 is the top (flipY): cell row k from the top sits at v-row 3 - k from the bottom
+  geo.setAttribute('aCell', new THREE.InstancedBufferAttribute(new Float32Array(Array.from({ length: 16 }, (_, id) => (id % 4) + (3 - (id >> 2)) * 4)), 1));
+  const mesh = new THREE.InstancedMesh(geo, mat, 16);
+  mesh.castShadow = mesh.receiveShadow = true;
+  mesh.frustumCulled = false; // instances move every frame; the cached bounds would go stale
+  mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+  return mesh;
 }
 
 // 2D ball icon for the HUD

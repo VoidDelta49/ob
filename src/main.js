@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { R, HL, HW, HEAD_X, FOOT_X, powerToSpeed, speedToPower } from './constants.js';
 import { buildTable, buildRoom } from './table.js';
-import { createBallMesh, ballIcon } from './balls.js';
+import { createBallSet, ballIcon } from './balls.js';
 import { createCue } from './cue.js';
 import { World, rackPositions, newLog, updateLog, cueGeometry } from './physics.js';
 import { Chalk, cueStrike, cueSpeedFor, minElevation, bridgeOptions, bridgeWobble, BRIDGES, armSpeedLimit, strokeError, tipPoint, TIP_R, MAX_TIP, muTip, miscueLimit } from './cuephys.js';
@@ -16,6 +16,7 @@ const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPrefere
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.shadowMap.autoUpdate = false; // redrawn only when a shadow caster moved (see frameKey)
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 1.05;
 renderer.outputColorSpace = THREE.SRGBColorSpace;
@@ -29,6 +30,7 @@ scene.environmentIntensity = 0.32;
 // near/far kept tight for depth precision (camera never gets closer than ~0.3 m to anything but the cue butt)
 const camera = new THREE.PerspectiveCamera(45, 1, 0.03, 20);
 const { cloth } = buildTable(scene, 0x145c35);
+let forceRender = true;
 const { lamp } = buildRoom(scene);
 
 // graphics quality (persisted); ?q=low forces low
@@ -38,13 +40,18 @@ function applyGfx() {
   renderer.setPixelRatio(hi ? Math.min(window.devicePixelRatio, 2) : 1);
   renderer.shadowMap.enabled = hi;
   scene.traverse((o) => { if (o.material) o.material.needsUpdate = true; });
+  forceRender = true;
   resize();
 }
 
 const CLOTHS = { green: 0x145c35, blue: 0x1a4f80, red: 0x5c1622 };
 
+// ballMeshes are transform holders only; all 16 balls are drawn by one InstancedMesh (instance = ball number)
+const ballSet = createBallSet();
+scene.add(ballSet);
 const ballMeshes = {};
-for (let id = 0; id <= 15; id++) { ballMeshes[id] = createBallMesh(id); scene.add(ballMeshes[id]); }
+for (let id = 0; id <= 15; id++) ballMeshes[id] = new THREE.Object3D();
+const HIDDEN = new THREE.Matrix4().makeScale(0, 0, 0);
 const cue = createCue();
 scene.add(cue);
 
@@ -1100,6 +1107,36 @@ function updateBalls(dt) {
       if (y < -0.13) { m.visible = false; b.fall = null; }
     } else if (b.pocketed || b.offTable) m.visible = false;
   }
+  for (let id = 0; id <= 15; id++) {
+    const m = ballMeshes[id];
+    m.updateMatrix();
+    ballSet.setMatrixAt(id, m.visible ? m.matrix : HIDDEN);
+  }
+  ballSet.instanceMatrix.needsUpdate = true;
+}
+
+// Dirty rendering, the way old games skipped work: a snapshot of everything that moves on screen. The shadow maps
+// (3 lights x every caster, the costliest pass) are redrawn only when a shadow caster changed, and the whole frame is
+// skipped when nothing visible changed (menus, CPU thinking, a still aim): the canvas keeps showing the last image.
+const SHADOW_KEYS = 256 + 16 + 6;
+const key = new Float32Array(SHADOW_KEYS + 16 + 1 + 1 + 3 + 1 + 4 + 3 * 7), lastKey = new Float32Array(key.length);
+function frameKey() {
+  let k = 0;
+  const put = (v) => { key[k++] = +v; };
+  const putAll = (a) => { key.set(a, k); k += a.length; };
+  putAll(ballSet.instanceMatrix.array);
+  cue.updateMatrix(); putAll(cue.matrix.elements); put(cue.visible); put(cue.userData.key());
+  put(rackFrame.visible); rackFrame.position.toArray(key, k); k += 3;
+  camera.updateMatrixWorld(); putAll(camera.matrixWorld.elements); put(camera.fov * camera.aspect);
+  put(rackFrame.material.opacity); put(cloth.color.r); put(cloth.color.g); put(cloth.color.b); put(lamp.visible);
+  put(ghost.visible); ghost.position.toArray(key, k); k += 3;
+  for (const l of [guideLine, obLine, cbLine]) { put(l.visible); putAll(l.geometry.attributes.position.array); }
+  let shadow = forceRender, view = forceRender;
+  for (let i = 0; i < key.length; i++) if (key[i] !== lastKey[i]) { view = true; if (i < SHADOW_KEYS) { shadow = true; break; } }
+  lastKey.set(key);
+  forceRender = false;
+  renderer.shadowMap.needsUpdate = shadow;
+  return view;
 }
 
 // Cue pose: anchored at the tip contact point on the cue ball, along the real cue axis (elevation included).
@@ -1333,7 +1370,7 @@ function frame(now) {
   updateRackFrame(dt);
   drawStroke(dt);
   updateCamera(dt);
-  if (renderOn) renderer.render(scene, camera);
+  if (renderOn && frameKey()) renderer.render(scene, camera);
   if (firstFrame) { firstFrame = false; ui.loading.classList.add('hidden'); }
   requestAnimationFrame(frame);
 }
@@ -1341,6 +1378,7 @@ function frame(now) {
 function resize() {
   const w = window.innerWidth, h = window.innerHeight;
   renderer.setSize(w, h, false);
+  forceRender = true;
   camera.aspect = w / h;
   camera.fov = w / h < 1 ? 58 : 45;
   camera.updateProjectionMatrix();
@@ -1366,7 +1404,7 @@ window.__pool = {
   newGame, shoot, setControls: applyControls, get controls() { return ctl; }, setPower, releasePower: () => { if (powerReady() && power > 0.015) { lastPower = power; shoot(power); } },
   get power() { return power; }, get aim() { return aimYaw; }, setAim: (y) => { aimYaw = y; cam.yaw = y; },
   set render(v) { renderOn = v; }, get tip() { return { ...tip } }, get lastStroke() { return lastStroke; }, get chalk() { return myChalk().mean(); }, get cue() { return cue; }, get shot() { return shot; }, get elev() { return { elev, elevMin, bridge, allowed: bridgeInfo.allowed } },
-  snapshot: () => { renderer.render(scene, camera); return canvas.toDataURL('image/png'); },
+  snapshot: () => { renderer.shadowMap.needsUpdate = true; renderer.render(scene, camera); return canvas.toDataURL('image/png'); },
   setCam: (yaw, pitch, dist) => { cam.yaw = camS.yaw = yaw; cam.pitch = camS.pitch = pitch; cam.dist = camS.dist = dist; }, toggleTop,
   // realism helpers: chalk the tip fully, place the tip / butt, get down, strike with a given cue speed and drift
   chalkFull: () => { for (const c of chalks) c.fill(1); chalkedOnce = [true, true]; chalkUI = null; ui.chalkOv.classList.add('hidden'); },
