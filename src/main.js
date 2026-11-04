@@ -18,7 +18,6 @@ patchShadowFilter();
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: false, powerPreference: 'high-performance' });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 renderer.shadowMap.enabled = true;
-renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 renderer.shadowMap.autoUpdate = false; // redrawn only when a shadow caster moved (see frameKey)
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 1.05;
@@ -36,15 +35,21 @@ scene.environmentIntensity = 0.32;
 const camera = new THREE.PerspectiveCamera(45, 1, 0.03, 20);
 const { cloth } = buildTable(scene, 0x145c35);
 let forceRender = true;
-const { lamp } = buildRoom(scene);
+const { lamp, lights } = buildRoom(scene);
 
 // graphics quality (persisted); ?q=low forces low
 let gfx = new URLSearchParams(location.search).get('q') || localStorage.getItem('ob-gfx') || 'high';
+// high: everything. medium: the previous look (3x3 PCF shadows from 1024 maps, no POM, no AO). low: also 1x resolution, no shadows.
 function applyGfx() {
-  const hi = gfx === 'high';
-  renderer.setPixelRatio(hi ? Math.min(window.devicePixelRatio, 2) : 1);
-  renderer.shadowMap.enabled = hi;
+  const hi = gfx === 'high', lo = gfx === 'low';
+  renderer.setPixelRatio(lo ? 1 : Math.min(window.devicePixelRatio, 2));
+  renderer.shadowMap.enabled = !lo;
+  renderer.shadowMap.type = hi ? THREE.PCFShadowMap : THREE.PCFSoftShadowMap; // PCFShadowMap is patched into the smooth filter
   setSurfaceQuality(hi);
+  for (const l of lights) { // dispose so the map is re-created at the new size
+    l.shadow.mapSize.setScalar(hi ? 1536 : 1024); l.shadow.focus = hi ? 0.92 : 1;
+    l.shadow.map?.dispose(); l.shadow.map = null;
+  }
   scene.traverse((o) => { if (o.material) o.material.needsUpdate = true; });
   forceRender = true;
   resize();

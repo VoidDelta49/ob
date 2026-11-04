@@ -142,12 +142,12 @@ export function patchMaterial(mat, { surf, depth = 0.001, phong } = {}) {
 }
 
 // ---------- smooth shadows ----------
-// Replaces three's blocky 3x3 PCF-soft with a noise-rotated Vogel-disk filter. Fully lit / fully shadowed texels (the vast
+// Replaces three's blocky 17-tap PCF (the High setting; Medium keeps PCFSoft) with a noise-rotated Vogel-disk filter. Fully lit / fully shadowed texels (the vast
 // majority) exit after 5 taps; only penumbrae pay for the full 16, and the per-pixel rotation turns banding into fine grain.
 export function patchShadowFilter() {
   const c = THREE.ShaderChunk.shadowmap_pars_fragment;
-  const a = c.indexOf('#elif defined( SHADOWMAP_TYPE_PCF_SOFT )'), b = c.indexOf('#elif defined( SHADOWMAP_TYPE_VSM )');
-  THREE.ShaderChunk.shadowmap_pars_fragment = c.slice(0, a) + /* glsl */`#elif defined( SHADOWMAP_TYPE_PCF_SOFT )
+  const a = c.indexOf('#if defined( SHADOWMAP_TYPE_PCF )\n'), b = c.indexOf('#elif defined( SHADOWMAP_TYPE_PCF_SOFT )');
+  THREE.ShaderChunk.shadowmap_pars_fragment = c.slice(0, a) + /* glsl */`#if defined( SHADOWMAP_TYPE_PCF )
 			vec2 texel = shadowRadius / shadowMapSize;
 			float rot = 6.2831853 * fract(52.9829189 * fract(dot(gl_FragCoord.xy, vec2(0.06711056, 0.00583715))));
 			vec2 cs = vec2(cos(rot), sin(rot));
