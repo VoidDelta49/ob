@@ -155,4 +155,16 @@ select { background: #1a130d; color: var(--ink); border: 1px solid var(--line); 
   #strokeCanvas { bottom: calc(146px + var(--safe-b)); }
   #report { bottom: calc(146px + var(--safe-b)); max-width: calc(100% - 80px); white-space: normal; text-align: center; }
   #hint { white-space: normal; text-align: center; width: max-content; max-width: calc(100% - 30px); bottom: calc(146px + var(--safe-b)); }
+  /* keep the strip, hint and report clear of the tall power bar on the right */
+  body.classic #fine { left: calc(50% - 37px); width: calc(100% - 114px); }
+  body.classic #hint, body.classic #report { left: calc(50% - 37px); max-width: calc(100% - 114px); }
+}
+
+/* Short landscape screens (phones on their side): the bar moves left of the top-right buttons and stays below the HUD */
+@media (max-height: 520px) and (min-width: 561px) {
+  body.classic #power { right: 58px; bottom: calc(10px + var(--safe-b)); height: calc(100% - 84px - var(--safe-b) - var(--safe-t)); width: 56px; }
+  body.classic #downBtn { right: 124px; width: 72px; }
+  body.classic #fine { left: calc(50% + 38px); width: min(300px, calc(100% - 496px)); }
+  body.classic #hint, body.classic #report { left: calc(50% - 60px); max-width: calc(100% - 260px); white-space: normal; text-align: center; }
+  body.classic #actBtn { right: 124px; }
 }

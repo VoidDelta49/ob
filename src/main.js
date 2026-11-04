@@ -1333,5 +1333,5 @@ window.__pool = {
   chalkFull: () => { for (const c of chalks) c.fill(1); chalkedOnce = [true, true]; chalkUI = null; ui.chalkOv.classList.add('hidden'); },
   setTip: (a, b) => { tip.a = a; tip.b = b; refreshCueSetup(true); }, setElev: (e) => { elevUser = e; refreshCueSetup(true); },
   stance: enterStance, stroke: (vCue, lateral = 0, back = 0.15) => { if (state !== 'stance') enterStance(); if (state === 'stance') humanStrike(vCue, lateral, back); },
-  quickRack: () => { if (rack) { rack.apex = [0, 0]; rack.gap = 0.0001; rack.loose = 0.0001; layoutRack(); rack.phase = 'lift'; rackLifted(0, -innerHeight * 0.3, 400); } },
+  quickRack: () => { if (rack) { rack.apex = [0, 0]; rack.gap = 0.0001; rack.loose = 0.0001; layoutRack(); rack.phase = 'lift'; ui.actBtn.classList.add('hidden'); rackLifted(0, -innerHeight * 0.3, 400); } },
 };
