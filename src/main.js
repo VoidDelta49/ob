@@ -813,6 +813,7 @@ function buzz(pattern) { if (touchSeen && navigator.vibrate) { try { navigator.v
 
 // Power bar: grab the handle and pull it down; every 10 % is a click you can hear and feel, full power is a hard stop.
 // The cue in the 3D view draws back with the handle; letting go fires the stroke and the bar drains with the cue.
+const classicAim = () => classic && (state === 'aim' || state === 'stance') && humanTurn();
 const KNOB_H = 36;
 for (let k = 0; k <= 10; k++) { const t = document.createElement('b'); t.style.setProperty('--k', k / 10); if (k % 5 === 0) t.className = 'major'; ui.powerScale.appendChild(t); }
 const ticks = [...ui.powerScale.children];
