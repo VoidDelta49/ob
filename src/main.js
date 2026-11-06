@@ -64,10 +64,14 @@ const dynRes = (() => {
   const WIN = 30, SLOW = 1000 / 48, FAST = 1000 / 57, STEP = 0.85, FLOOR = 1.2; // FLOOR: lowest pixel ratio it will go to
   let scale = 1, n = 0, sum = 0, prevRendered = false, good = 0, needGood = 3, lastAvg = 0, probe = 0, locked = 0, lockLen = 20;
   const minScale = () => Math.min(1, FLOOR / basePR());
-  const apply = (s) => { scale = s; renderer.setPixelRatio(basePR() * scale); resize(); };
+  // Resizing clears the canvas, so a change is only requested here and carried out by flush() at the start of the next frame,
+  // right before it draws. Doing it after the draw would let the browser present one blank frame (a visible flicker).
+  let applied = 1;
+  const apply = (s) => { scale = s; };
   return {
     get scale() { return scale; },
-    reset() { scale = 1; n = sum = good = probe = locked = 0; needGood = 3; lockLen = 20; },
+    flush() { if (applied !== scale) { applied = scale; renderer.setPixelRatio(basePR() * scale); resize(); } },
+    reset() { scale = applied = 1; n = sum = good = probe = locked = 0; needGood = 3; lockLen = 20; },
     // ms: time since the previous rAF; rendered: whether this frame drew. Only rendered-after-rendered frames are timed.
     tick(ms, rendered) {
       const timed = rendered && prevRendered;
@@ -1415,6 +1419,7 @@ function frame(now) {
   updateRackFrame(dt);
   drawStroke(dt);
   updateCamera(dt);
+  dynRes.flush();
   const drew = renderOn && frameKey();
   if (drew) draw();
   dynRes.tick(now - prevNow, drew); prevNow = now;
