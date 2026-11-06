@@ -20,12 +20,14 @@ const browser = await chromium.launch({ args: ['--use-gl=angle', '--use-angle=sw
 const page = await browser.newPage({ viewport: { width: w, height: h }, deviceScaleFactor: +(args.dpr || 1), hasTouch: !!args.touch, isMobile: !!args.touch });
 page.on('pageerror', (e) => console.error('pageerror:', e.message));
 page.on('console', (m) => { if (m.type() === 'error' || m.type() === 'warning') console.error('console:', m.text()); });
-await page.addInitScript(() => { let s = 1; Math.random = () => ((s = (s * 16807) % 2147483647) / 2147483647); });
+// seeded Math.random, reseeded right before the rack: three.js draws on Math.random for every material / target id it creates,
+// so without the reseed a build that creates a few more objects at startup would get a different rack and camera
+await page.addInitScript(() => { let s = 1; Math.random = () => ((s = (s * 16807) % 2147483647) / 2147483647); window.__seed = (v) => { s = v; }; });
 await page.clock.install();
 await page.goto('file://' + path.resolve(args.file || 'dist/index.html') + '?q=high');
 for (let i = 0; i < 100 && !(await page.evaluate(() => !!window.__pool)); i++) await page.clock.runFor(100);
 await page.addStyleTag({ content: '.overlay,#hud,#topbar,#controls,#hint,#toast{display:none!important}' });
-await page.evaluate(() => { window.__pool.newGame('practice'); window.__pool.quickRack(); window.__pool.chalkFull(); });
+await page.evaluate(() => { window.__seed(1); window.__pool.newGame('practice'); window.__pool.quickRack(); window.__pool.chalkFull(); });
 if (args.cb) await page.evaluate((c) => { const [x, z] = c.split(',').map(Number); const b = window.__pool.world.ball(0); b.x = x; b.z = z; }, args.cb);
 if (args.cam) await page.evaluate((c) => window.__pool.setCam(...c.split(',').map(Number)), args.cam);
 await page.clock.runFor(1500);

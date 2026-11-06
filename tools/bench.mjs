@@ -18,13 +18,15 @@ fs.mkdirSync(path.dirname(out), { recursive: true });
 const browser = await chromium.launch({ args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader'] });
 const page = await browser.newPage({ viewport: { width: w, height: h }, deviceScaleFactor: +(args.dpr || 2), hasTouch: !!args.touch, isMobile: !!args.touch });
 page.on('pageerror', (e) => console.error('pageerror:', e.message));
-await page.addInitScript(() => { let s = 1; Math.random = () => ((s = (s * 16807) % 2147483647) / 2147483647); }); // same rack every run
+// seeded Math.random, reseeded right before the rack: three.js draws on Math.random for every material / target id it creates,
+// so without the reseed a build that creates a few more objects at startup would get a different rack and camera
+await page.addInitScript(() => { let s = 1; Math.random = () => ((s = (s * 16807) % 2147483647) / 2147483647); window.__seed = (v) => { s = v; }; }); // same rack every run
 await page.clock.install(); // fake clock: the same camera / rack state every run, so PNGs can be diffed between builds
 await page.goto('file://' + path.resolve(args.file || 'dist/index.html') + '?q=' + (args.q || 'high') + (args.extra ? '&' + args.extra : ''));
 for (let i = 0; i < 100 && !(await page.evaluate(() => !!window.__pool)); i++) await page.clock.runFor(100);
 await page.addStyleTag({ content: '.overlay,#hud,#topbar,#controls,#hint,#toast{display:none!important}' });
 if (args.gi === 'off') await page.evaluate(() => { window.__pool.gi = false; }); // High without SSRT-GI, for A/B
-await page.evaluate(() => { window.__pool.newGame('practice'); window.__pool.quickRack(); window.__pool.chalkFull(); });
+await page.evaluate(() => { window.__seed(1); window.__pool.newGame('practice'); window.__pool.quickRack(); window.__pool.chalkFull(); });
 if (args.cam) await page.evaluate((c) => window.__pool.setCam(...c.split(',').map(Number)), args.cam);
 await page.clock.runFor(1500);
 if (args.stance) { await page.evaluate(() => window.__pool.stance()); await page.clock.runFor(2500); }
