@@ -11,7 +11,7 @@ step and no game engine: open `index.html` from any static server.
 - **8-ball rules**: the table is open after the break, and the first legal pot assigns groups. Fouls are a scratch, no ball hit, hitting the wrong ball first, or no rail after contact. A foul gives the opponent ball in hand. Potting the 8 early or on a foul loses, and an 8 potted on the break is re-spotted.
 - **CPU opponent** (easy / medium / hard): it finds candidate shots with ghost-ball aiming, then runs the real physics headless to check each one. It weighs both potting the ball and where the cue ball ends up.
 - **2-player hot-seat** and **practice** modes.
-- **Rendering**: PBR rendering with procedural cloth, wood and ball textures, a three-shade lamp with soft shadows, and a mechanical cue that lifts its butt to clear the rail. Sounds are synthesised in the browser. Draw calls are kept to a minimum: the balls are a single instanced mesh on one texture atlas, the cue and the static scenery are merged per material, shadow maps are redrawn only when a shadow caster moves, and frames where nothing on screen changed are skipped. Parallax-occlusion steps scale with how far the relief actually shifts on screen (at play distance the cloth weave moves under a pixel, so the march is skipped), which makes High ~40 % cheaper with an identical image. On phones and slow GPUs a dynamic-resolution governor lowers the render scale (never below 1.2× pixel ratio) while back-to-back frames run under ~48 fps, and restores it once there's headroom.
+- **Rendering**: PBR rendering with procedural cloth, wood and ball textures, a three-shade lamp with soft shadows, and a mechanical cue that lifts its butt to clear the rail. Sounds are synthesised in the browser. Draw calls are kept to a minimum: the balls are a single instanced mesh on one texture atlas, the cue and the static scenery are merged per material, shadow maps are redrawn only when a shadow caster moves, and frames where nothing on screen changed are skipped. Parallax-occlusion steps scale with how far the relief actually shifts on screen (at play distance the cloth weave moves under a pixel, so the march is skipped), which makes High ~40 % cheaper with an identical image. High adds screen-space ray-traced global illumination (SSRT-GI): bounced light with colour bleeding, such as green cloth light on the undersides of the balls and the cushions, a red ball tinting the cloth beside it, and balls lighting each other. Each pixel casts 1–2 cosine-weighted rays through the depth buffer (a jittered 4–12-step march with a thickness test) and takes the radiance of what they hit from the lit HDR frame. The result is reprojected and accumulated over frames (rejected on depth mismatch, clipped to its neighbourhood so moving balls don't smear), denoised by the AO blur with depth and normal edge stops, and added as GI × albedo to the indirect light before tone mapping. Albedo comes from a second MSAA attachment of the scene pass. AO keeps darkening the ambient light that occluders block, and GI adds back the light those occluders bounce, so nothing is darkened twice. Rays that miss add nothing, because the environment light is already in the image. Phones trace at quarter resolution with one ray and desktops at half resolution with two, and the march gets shorter when dynamic resolution scales the frame down. A still view still skips its frames, except that GI runs about 8 accumulation-only frames (no scene redraw) to converge. Medium and Low never create the GI targets or shaders. On phones and slow GPUs a dynamic-resolution governor lowers the render scale (never below 1.2× pixel ratio) while back-to-back frames run under ~48 fps, and restores it once there's headroom.
 - **Two control schemes** (menu → *Controls*, remembered between visits):
   - **Classic** (default): drag to aim, set english on the spin ball, then tap **Get down**, which brings up the power bar (it isn't there while you stand), and pull the handle down and release. Every 10 % is a click you can hear and feel (haptics on phones), full power is a hard stop, the cue strains and trembles near the top, the bar drains in step with the cue stroke, and a marker keeps your last power so you can repeat a shot. The table is racked for you and the aim guide is available in every mode.
   - **Realistic**: there's no power bar and no aim line (the aim line is a practice-only aid). You chalk, rack, choose a bridge, place the tip on the ball, raise the butt, get down, and stroke the cue with your finger. Your finger speed sets the cue speed. The details below describe this scheme.
@@ -58,7 +58,9 @@ node tools/flow-classic.mjs    # end-to-end (Classic): spin ball, power bar only
 node tools/layout.mjs          # layout at 13 screen sizes: everything on screen, nothing overlapping, power bar only when down
                                # headless render to PNGs (needs Playwright; see tools/screenshot.mjs)
 node tools/bench.mjs --q high --size 390x844 --dpr 2 [--stance]
-                               # GPU cost probe: ms/frame under software GL + a deterministic PNG to diff between builds
+                               # GPU cost probe: ms/frame under software GL + a deterministic PNG to diff between builds (--gi off: High without GI)
+node tools/gi.mjs --cb 0.42,0.02 --cam 0,0.3,0.55 [--stance] [--motion] [--touch]
+                               # GI A/B: the same frame with GI off | on | amplified difference (| a frame mid-motion)
 npm run build                  # single-file offline build -> dist/index.html
 ```
 
@@ -73,10 +75,13 @@ src/ai.js          CPU shot planner
 src/table.js       table, room and lamp meshes
 src/balls.js       ball textures / HUD icons
 src/cue.js         cue stick
+src/post.js        post pipeline: MSAA HDR target, XeGTAO, SSRT-GI (High), composite + tone map
+src/surface.js     procedural PBR surfaces (POM, self-shadowing), shadow filter patch
 tools/screenshot.mjs  headless Playwright renderer (fake clock for animation frames)
 tools/flow.mjs     headless gesture walkthrough of rack → chalk → stroke (Realistic)
 tools/flow-classic.mjs  headless gesture walkthrough of the Classic spin ball + power bar
 tools/bench.mjs         headless frame-cost probe (deterministic: fake clock, seeded rack)
+tools/gi.mjs            headless SSRT-GI A/B: GI off / on / difference side by side, optionally a mid-motion frame
 tools/layout.mjs        headless check that the UI scales: fits and doesn't overlap at phone, tablet and desktop sizes
 src/audio.js       synthesised SFX
 sw.js              cache blocker: service worker that revalidates every game file on each load (offline fallback)
