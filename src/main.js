@@ -4,7 +4,7 @@ import { R, HL, HW, HEAD_X, FOOT_X, powerToSpeed, speedToPower } from './constan
 import { buildTable, buildRoom } from './table.js';
 import { createBallSet, ballIcon } from './balls.js';
 import { patchShadowFilter, setSurfaceQuality } from './surface.js';
-import { createPost } from './post.js';
+import { createPost, setAlbedoOutput } from './post.js';
 import { createCue } from './cue.js';
 import { World, rackPositions, newLog, updateLog, cueGeometry } from './physics.js';
 import { Chalk, cueStrike, cueSpeedFor, minElevation, bridgeOptions, bridgeWobble, BRIDGES, armSpeedLimit, strokeError, tipPoint, TIP_R, MAX_TIP, muTip, miscueLimit } from './cuephys.js';
@@ -41,9 +41,19 @@ const { lamp, lights } = buildRoom(scene);
 let gfx = new URLSearchParams(location.search).get('q') || localStorage.getItem('ob-gfx') || 'high';
 // high: everything. medium: the previous look (3x3 PCF shadows from 1024 maps, no POM, no AO). low: also 1x resolution, no shadows.
 const basePR = () => (gfx === 'low' ? 1 : Math.min(window.devicePixelRatio, 2));
+// Screen-space ray-traced GI (High only): traced at quarter resolution on phones and half on desktop, with fewer march steps
+// when dynamic resolution has scaled the frame down. giOn is a debug switch (__pool.gi) for side-by-side comparisons.
+let giOn = true;
+const isPhone = () => matchMedia('(pointer: coarse)').matches || Math.min(innerWidth, innerHeight) < 600;
+function giConfig() {
+  if (gfx !== 'high' || !giOn) return null;
+  const phone = isPhone();
+  return { quarter: phone, rays: phone ? 1 : 2, steps: Math.max(4, Math.round((phone ? 8 : 10) * dynRes.scale)), strength: 1 };
+}
 function applyGfx() {
   const hi = gfx === 'high', lo = gfx === 'low';
   dynRes.reset();
+  setAlbedoOutput(hi); // before the materials below are flagged for recompile
   renderer.setPixelRatio(basePR());
   renderer.shadowMap.enabled = !lo;
   renderer.shadowMap.type = hi ? THREE.PCFShadowMap : THREE.PCFSoftShadowMap; // PCFShadowMap is patched into the smooth filter
@@ -1421,7 +1431,8 @@ function frame(now) {
   updateCamera(dt);
   dynRes.flush();
   const drew = renderOn && frameKey();
-  if (drew) draw();
+  // A still view draws nothing, except the few GI accumulation frames owed after the last real frame (GI passes only, no scene)
+  if (drew) draw(); else if (renderOn && post && post.pending) post.accumulate(camera);
   dynRes.tick(now - prevNow, drew); prevNow = now;
   if (firstFrame) { firstFrame = false; ui.loading.classList.add('hidden'); }
   requestAnimationFrame(frame);
@@ -1430,7 +1441,7 @@ function frame(now) {
 function resize() {
   const w = window.innerWidth, h = window.innerHeight;
   renderer.setSize(w, h, false);
-  if (post) { const v = renderer.getDrawingBufferSize(new THREE.Vector2()); post.setSize(v.x, v.y); }
+  if (post) { const v = renderer.getDrawingBufferSize(new THREE.Vector2()); post.setGI(giConfig()); post.setSize(v.x, v.y); }
   forceRender = true;
   camera.aspect = w / h;
   camera.fov = w / h < 1 ? 58 : 45;
@@ -1457,7 +1468,9 @@ window.__pool = {
   newGame, shoot, setControls: applyControls, get controls() { return ctl; }, setPower, releasePower: () => { if (powerReady() && power > 0.015) { lastPower = power; shoot(power); } },
   get resScale() { return dynRes.scale; }, get power() { return power; }, get aim() { return aimYaw; }, setAim: (y) => { aimYaw = y; cam.yaw = y; },
   set render(v) { renderOn = v; }, get tip() { return { ...tip } }, get lastStroke() { return lastStroke; }, get chalk() { return myChalk().mean(); }, get cue() { return cue; }, get shot() { return shot; }, get elev() { return { elev, elevMin, bridge, allowed: bridgeInfo.allowed } },
-  snapshot: () => { renderer.shadowMap.needsUpdate = true; draw(); return canvas.toDataURL('image/png'); },
+  snapshot: () => { renderer.shadowMap.needsUpdate = true; draw(); while (post && post.accumulate(camera)); return canvas.toDataURL('image/png'); },
+  // SSRT-GI debug switch (High only): __pool.gi = false renders High without GI, for side-by-side screenshots
+  get gi() { return !!post && post.gi; }, set gi(v) { giOn = !!v; resize(); },
   // GPU cost probe (tools/bench.mjs): n full frames, synchronously finished; shadows = also redraw the shadow maps each frame
   bench: (n = 10, shadows = false) => {
     const gl = renderer.getContext(), t0 = performance.now();
