@@ -11,7 +11,7 @@ step and no game engine: open `index.html` from any static server.
 - **8-ball rules**: the table is open after the break, and the first legal pot assigns groups. Fouls are a scratch, no ball hit, hitting the wrong ball first, or no rail after contact. A foul gives the opponent ball in hand. Potting the 8 early or on a foul loses, and an 8 potted on the break is re-spotted.
 - **CPU opponent** (easy / medium / hard): it finds candidate shots with ghost-ball aiming, then runs the real physics headless to check each one. It weighs both potting the ball and where the cue ball ends up.
 - **2-player hot-seat** and **practice** modes.
-- **Rendering**: PBR rendering with procedural cloth, wood and ball textures, a three-shade lamp with soft shadows, and a mechanical cue that lifts its butt to clear the rail. Sounds are synthesised in the browser. Draw calls are kept to a minimum: the balls are a single instanced mesh on one texture atlas, the cue and the static scenery are merged per material, shadow maps are redrawn only when a shadow caster moves, and frames where nothing on screen changed are skipped.
+- **Rendering**: PBR rendering with procedural cloth, wood and ball textures, a three-shade lamp with soft shadows, and a mechanical cue that lifts its butt to clear the rail. Sounds are synthesised in the browser. Draw calls are kept to a minimum: the balls are a single instanced mesh on one texture atlas, the cue and the static scenery are merged per material, shadow maps are redrawn only when a shadow caster moves, and frames where nothing on screen changed are skipped. Parallax-occlusion steps scale with how far the relief actually shifts on screen (at play distance the cloth weave moves under a pixel, so the march is skipped), which makes High ~40 % cheaper with an identical image. On phones and slow GPUs a dynamic-resolution governor lowers the render scale (never below 1.2× pixel ratio) while back-to-back frames run under ~48 fps, and restores it once there's headroom.
 - **Two control schemes** (menu → *Controls*, remembered between visits):
   - **Classic** (default): drag to aim, set english on the spin ball, then tap **Get down**, which brings up the power bar (it isn't there while you stand), and pull the handle down and release. Every 10 % is a click you can hear and feel (haptics on phones), full power is a hard stop, the cue strains and trembles near the top, the bar drains in step with the cue stroke, and a marker keeps your last power so you can repeat a shot. The table is racked for you and the aim guide is available in every mode.
   - **Realistic**: there's no power bar and no aim line (the aim line is a practice-only aid). You chalk, rack, choose a bridge, place the tip on the ball, raise the butt, get down, and stroke the cue with your finger. Your finger speed sets the cue speed. The details below describe this scheme.
@@ -57,6 +57,8 @@ node tools/flow.mjs            # end-to-end (Realistic): rack, chalk, stroke wit
 node tools/flow-classic.mjs    # end-to-end (Classic): spin ball, power bar only when down, handle detents / cancel / release
 node tools/layout.mjs          # layout at 13 screen sizes: everything on screen, nothing overlapping, power bar only when down
                                # headless render to PNGs (needs Playwright; see tools/screenshot.mjs)
+node tools/bench.mjs --q high --size 390x844 --dpr 2 [--stance]
+                               # GPU cost probe: ms/frame under software GL + a deterministic PNG to diff between builds
 npm run build                  # single-file offline build -> dist/index.html
 ```
 
@@ -74,6 +76,7 @@ src/cue.js         cue stick
 tools/screenshot.mjs  headless Playwright renderer (fake clock for animation frames)
 tools/flow.mjs     headless gesture walkthrough of rack → chalk → stroke (Realistic)
 tools/flow-classic.mjs  headless gesture walkthrough of the Classic spin ball + power bar
+tools/bench.mjs         headless frame-cost probe (deterministic: fake clock, seeded rack)
 tools/layout.mjs        headless check that the UI scales: fits and doesn't overlap at phone, tablet and desktop sizes
 src/audio.js       synthesised SFX
 sw.js              cache blocker: service worker that revalidates every game file on each load (offline fallback)

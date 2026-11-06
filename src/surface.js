@@ -63,18 +63,29 @@ void surfPOM(vec2 uv0) {
     vec3 q0 = dFdx(P), q1 = dFdy(P);
     float upm = sqrt((dot(dx, dx) + dot(dy, dy)) / max(dot(q0, q0) + dot(q1, q1), 1e-12)); // uv per metre
     float fade = smoothstep(0.08, 0.3, Vt.z);   // flatten at grazing angles, where steps would show
-    float nl = mix(14.0, 5.0, Vt.z), dl = 1.0 / nl;
-    vec2 duv = -(Vt.xy / max(Vt.z, 0.2)) * (pomDepth * fade * upm) * dl;
-    float ld = 0.0, hv = 1.0 - textureGrad(tSurf, uv0, dx, dy).b, pl = 0.0, ph = hv;
-    vec2 uv = uv0, pu = uv0;
-    for (int i = 0; i < 14; i++) {
-      if (ld >= hv || float(i) >= nl) break;
-      pu = uv; pl = ld; ph = hv;
-      uv += duv; ld += dl;
-      hv = 1.0 - textureGrad(tSurf, uv, dx, dy).b;
+    // Steps scale with how far the relief can shift the texture on screen, in texels of the mip level actually sampled
+    // (bilinear + the final interpolation resolve ~1.5 texels per step). At play distance the cloth weave moves well under a
+    // pixel, so the march is skipped outright; close-ups still get the full 14 steps. Same image, a fraction of the taps.
+    vec2 ts = vec2(textureSize(tSurf, 0));
+    float tpp = max(1.0, sqrt(max(dot(dx * ts, dx * ts), dot(dy * ts, dy * ts)))); // texels per pixel (sampled mip footprint)
+    float relief = pomDepth * fade * upm;
+    vec2 span = -(Vt.xy / max(Vt.z, 0.2)) * relief;
+    float nl = min(mix(14.0, 5.0, Vt.z), ceil(length(span * ts) / tpp * 0.7)), dl = 1.0 / max(nl, 1.0);
+    if (nl >= 1.0) {
+      vec2 duv = span * dl;
+      float ld = 0.0, hv = 1.0 - textureGrad(tSurf, uv0, dx, dy).b, pl = 0.0, ph = hv;
+      vec2 uv = uv0, pu = uv0;
+      for (int i = 0; i < 14; i++) {
+        if (ld >= hv || float(i) >= nl) break;
+        pu = uv; pl = ld; ph = hv;
+        uv += duv; ld += dl;
+        hv = 1.0 - textureGrad(tSurf, uv, dx, dy).b;
+      }
+      float after = hv - ld, before = ph - pl;
+      pUv = mix(uv, pu, clamp(after / min(after - before, -1e-5), 0.0, 1.0));
     }
-    float after = hv - ld, before = ph - pl;
-    pUv = mix(uv, pu, clamp(after / min(after - before, -1e-5), 0.0, 1.0));
+    pSurf = textureGrad(tSurf, pUv, dx, dy);
+    float h0 = pSurf.b;
     // self-shadow: march from the hit point up towards the light, tracking how far the relief pokes above the ray
     vec3 Lv = vec3(0.0);
     #if NUM_SPOT_LIGHTS > 0
@@ -85,19 +96,20 @@ void surfPOM(vec2 uv0) {
     #endif
     Lv = normalize(Lv);
     vec3 Lt = vec3(dot(Lv, pTBN[0]), dot(Lv, pTBN[1]), dot(Lv, N));
-    float h0 = textureGrad(tSurf, pUv, dx, dy).b;
     if (Lt.z > 0.12) {
-      vec2 stp = (Lt.xy / Lt.z) * (pomDepth * fade * upm) * ((1.0 - h0) / 6.0);
+      vec2 stp = (Lt.xy / Lt.z) * relief * (1.0 - h0);
+      // same 6-tap profile, thinned to the texels the ray actually crosses (sub-texel rays see a flat mip: no shadow)
+      float ns = min(6.0, ceil(length(stp * ts) / tpp * 1.5));
       float occ = 0.0;
       for (int k = 1; k <= 6; k++) {
-        float r = h0 + (1.0 - h0) * float(k) / 6.0;
-        occ = max(occ, (textureGrad(tSurf, pUv + stp * float(k), dx, dy).b - r) * (1.0 - float(k) / 7.0));
+        if (float(k) > ns) break;
+        float t = float(k) / ns;
+        occ = max(occ, (textureGrad(tSurf, pUv + stp * t, dx, dy).b - (h0 + (1.0 - h0) * t)) * (1.0 - t * 0.857));
       }
       pShadow = 1.0 - clamp(occ * 5.0, 0.0, 0.85) * fade;
     }
     pCavity = mix(1.0, mix(0.55, 1.0, h0), fade);
-  }
-  pSurf = textureGrad(tSurf, pUv, dx, dy);
+  } else pSurf = textureGrad(tSurf, pUv, dx, dy);
 }
 #endif
 #ifdef PHONG

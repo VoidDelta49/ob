@@ -40,9 +40,11 @@ const { lamp, lights } = buildRoom(scene);
 // graphics quality (persisted); ?q=low forces low
 let gfx = new URLSearchParams(location.search).get('q') || localStorage.getItem('ob-gfx') || 'high';
 // high: everything. medium: the previous look (3x3 PCF shadows from 1024 maps, no POM, no AO). low: also 1x resolution, no shadows.
+const basePR = () => (gfx === 'low' ? 1 : Math.min(window.devicePixelRatio, 2));
 function applyGfx() {
   const hi = gfx === 'high', lo = gfx === 'low';
-  renderer.setPixelRatio(lo ? 1 : Math.min(window.devicePixelRatio, 2));
+  dynRes.reset();
+  renderer.setPixelRatio(basePR());
   renderer.shadowMap.enabled = !lo;
   renderer.shadowMap.type = hi ? THREE.PCFShadowMap : THREE.PCFSoftShadowMap; // PCFShadowMap is patched into the smooth filter
   setSurfaceQuality(hi);
@@ -54,6 +56,38 @@ function applyGfx() {
   forceRender = true;
   resize();
 }
+
+// Dynamic resolution: if back-to-back rendered frames run slow (a phone filling a 2x canvas with the High shaders), the
+// render scale steps down until frames keep up, and creeps back once there's headroom. A step that doesn't speed frames up
+// (a 30 Hz power-save cap, or a CPU-bound frame) is undone and the scale stays put, so it never trades sharpness for nothing.
+const dynRes = (() => {
+  const WIN = 30, SLOW = 1000 / 48, FAST = 1000 / 57, STEP = 0.85, FLOOR = 1.2; // FLOOR: lowest pixel ratio it will go to
+  let scale = 1, n = 0, sum = 0, prevRendered = false, good = 0, needGood = 3, lastAvg = 0, probe = 0, locked = 0, lockLen = 20;
+  const minScale = () => Math.min(1, FLOOR / basePR());
+  const apply = (s) => { scale = s; renderer.setPixelRatio(basePR() * scale); resize(); };
+  return {
+    get scale() { return scale; },
+    reset() { scale = 1; n = sum = good = probe = locked = 0; needGood = 3; lockLen = 20; },
+    // ms: time since the previous rAF; rendered: whether this frame drew. Only rendered-after-rendered frames are timed.
+    tick(ms, rendered) {
+      const timed = rendered && prevRendered;
+      prevRendered = rendered;
+      if (!timed || gfx === 'low' || minScale() >= 1) return;
+      sum += ms; if (++n < WIN) return;
+      const avg = sum / n; n = sum = 0;
+      const wasProbe = probe; probe = 0;
+      if (locked > 0) locked--;
+      if (wasProbe < 0 && avg > lastAvg * 0.92) { // step down gained nothing: undo, and don't try again for a while (longer each time)
+        apply(Math.min(1, scale / STEP)); locked = lockLen; lockLen = Math.min(lockLen * 2, 640); return;
+      }
+      if (avg > SLOW) {
+        good = 0;
+        if (wasProbe > 0) needGood = Math.min(needGood * 2, 64); // the last step up overshot: wait longer before the next one
+        if (!locked && scale > minScale()) { lastAvg = avg; probe = -1; apply(Math.max(minScale(), scale * STEP)); }
+      } else if (avg < FAST && scale < 1 && ++good >= needGood) { good = 0; probe = 1; apply(Math.min(1, scale / STEP)); }
+    },
+  };
+})();
 
 const CLOTHS = { green: 0x145c35, blue: 0x1a4f80, red: 0x5c1622 };
 
@@ -1350,7 +1384,7 @@ function processEvents() {
 }
 
 // ---------- loop ----------
-let last = performance.now();
+let last = performance.now(), prevNow = last;
 let firstFrame = true;
 let renderOn = true; // debug: headless tests switch rendering off so gestures arrive in real time
 function frame(now) {
@@ -1381,7 +1415,9 @@ function frame(now) {
   updateRackFrame(dt);
   drawStroke(dt);
   updateCamera(dt);
-  if (renderOn && frameKey()) draw();
+  const drew = renderOn && frameKey();
+  if (drew) draw();
+  dynRes.tick(now - prevNow, drew); prevNow = now;
   if (firstFrame) { firstFrame = false; ui.loading.classList.add('hidden'); }
   requestAnimationFrame(frame);
 }
@@ -1414,9 +1450,16 @@ window.__pool = {
   fastForward: () => { if (state !== 'rolling') return; while (world.anyMoving()) { world.step(1 / 1500); processEvents(); } },
   get world() { return world; }, get game() { return game; }, get state() { return state; }, get rack() { return rack; },
   newGame, shoot, setControls: applyControls, get controls() { return ctl; }, setPower, releasePower: () => { if (powerReady() && power > 0.015) { lastPower = power; shoot(power); } },
-  get power() { return power; }, get aim() { return aimYaw; }, setAim: (y) => { aimYaw = y; cam.yaw = y; },
+  get resScale() { return dynRes.scale; }, get power() { return power; }, get aim() { return aimYaw; }, setAim: (y) => { aimYaw = y; cam.yaw = y; },
   set render(v) { renderOn = v; }, get tip() { return { ...tip } }, get lastStroke() { return lastStroke; }, get chalk() { return myChalk().mean(); }, get cue() { return cue; }, get shot() { return shot; }, get elev() { return { elev, elevMin, bridge, allowed: bridgeInfo.allowed } },
   snapshot: () => { renderer.shadowMap.needsUpdate = true; draw(); return canvas.toDataURL('image/png'); },
+  // GPU cost probe (tools/bench.mjs): n full frames, synchronously finished; shadows = also redraw the shadow maps each frame
+  bench: (n = 10, shadows = false) => {
+    const gl = renderer.getContext(), t0 = performance.now();
+    for (let i = 0; i < n; i++) { renderer.shadowMap.needsUpdate = shadows || i === 0; draw(); gl.finish(); }
+    gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array(4));
+    return (performance.now() - t0) / n;
+  },
   setCam: (yaw, pitch, dist) => { cam.yaw = camS.yaw = yaw; cam.pitch = camS.pitch = pitch; cam.dist = camS.dist = dist; }, toggleTop,
   // realism helpers: chalk the tip fully, place the tip / butt, get down, strike with a given cue speed and drift
   chalkFull: () => { for (const c of chalks) c.fill(1); chalkedOnce = [true, true]; chalkUI = null; ui.chalkOv.classList.add('hidden'); },
